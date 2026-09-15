@@ -54,14 +54,17 @@ class Connection(Protocol):
     def close(self) -> None: ...
 
 
-# Each entry is one atomic migration: a tuple of statements applied together. The
-# applied count is tracked in the meta table. Append-only; never edit an entry that
-# has shipped.
+# Each entry is one migration: a tuple of statements applied together. The applied
+# count is tracked in the meta table. Append-only; never edit an entry that shipped.
+#
+# Every statement must be idempotent (IF NOT EXISTS, etc.): Turso does not roll back
+# DDL, so a migration that fails partway leaves its earlier statements committed, and
+# the retry must be able to re-run them harmlessly.
 _SCHEMA_KEY = "schema_version"
 MIGRATIONS: tuple[tuple[str, ...], ...] = (
     (
         """
-        CREATE TABLE snapshots (
+        CREATE TABLE IF NOT EXISTS snapshots (
             ts        TEXT    NOT NULL,   -- ISO8601 UTC, the batch/slot timestamp
             tier      TEXT    NOT NULL,   -- 'window' | 'baseline'
             game_id   TEXT    NOT NULL,
@@ -72,10 +75,10 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
             PRIMARY KEY (ts, game_id)     -- idempotency: one row per game per batch
         )
         """,
-        "CREATE INDEX idx_snap_game_ts ON snapshots (game_id, ts)",
-        "CREATE INDEX idx_snap_ts ON snapshots (ts)",
+        "CREATE INDEX IF NOT EXISTS idx_snap_game_ts ON snapshots (game_id, ts)",
+        "CREATE INDEX IF NOT EXISTS idx_snap_ts ON snapshots (ts)",
         """
-        CREATE TABLE meta (
+        CREATE TABLE IF NOT EXISTS meta (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         )

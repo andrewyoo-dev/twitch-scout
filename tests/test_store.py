@@ -73,6 +73,22 @@ def test_migrations_are_idempotent_across_reconnects(tmp_path: Path) -> None:
     second.close()
 
 
+def test_migration_self_heals_partial_state(tmp_path: Path) -> None:
+    # Turso does not roll back DDL, so a failed first run can leave the tables
+    # created but no schema_version row. Re-running must complete, not crash on
+    # "table already exists".
+    db = tmp_path / "scout.db"
+    raw = sqlite3.connect(db)
+    raw.execute("CREATE TABLE snapshots (ts TEXT, game_id TEXT, PRIMARY KEY (ts, game_id))")
+    raw.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    raw.commit()
+    raw.close()
+
+    conn = connect(db)  # must not raise
+    assert schema_version(conn) == SCHEMA_VERSION
+    conn.close()
+
+
 def test_schema_newer_than_code_is_refused(tmp_path: Path) -> None:
     db = tmp_path / "scout.db"
     connect(db).close()  # creates schema + meta schema_version row
