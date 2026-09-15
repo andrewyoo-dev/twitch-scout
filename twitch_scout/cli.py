@@ -5,8 +5,9 @@ Built on argparse (boring and static — coding standard 7). Commands wired so f
   * ``scout init-db``  — create/migrate the database.
   * ``scout collect``  — run one sample. ``--tier auto`` (the cron path) lets the
     clock decide window vs baseline; ``window``/``baseline`` force it for backfill.
+  * ``scout rank``     — rank candidate categories from the collected samples.
 
-``rank`` and ``steam-sync`` are reserved for when those modules land.
+``steam-sync`` is reserved for when that module lands.
 """
 
 from __future__ import annotations
@@ -20,10 +21,14 @@ from twitch_scout.clock import SystemClock
 from twitch_scout.collect.collector import Collector, CollectResult
 from twitch_scout.collect.tiers import Tier
 from twitch_scout.config import Config, ConfigError
+from twitch_scout.rank.guards import GuardConfig
+from twitch_scout.rank.rank import RankConfig, RankResult, rank_candidates
 from twitch_scout.store.db import StoreError, connect, schema_version
 from twitch_scout.twitch.client import HelixClient, TwitchError
 
 logger = logging.getLogger(__name__)
+
+_NAME_WIDTH = 32  # column width for the game name in the ranking table
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -46,6 +51,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--force", action="store_true", help="re-sample even if the slot already exists"
     )
     collect.set_defaults(func=cmd_collect)
+
+    rank = sub.add_parser("rank", help="rank candidate categories from collected samples")
+    rank.add_argument("--days", type=int, default=14, help="evaluation window in days")
+    rank.add_argument(
+        "--floor", type=float, default=None, help="minimum window viewers (guard override)"
+    )
+    rank.add_argument(
+        "--min-channels", type=float, default=None, help="minimum window channels (guard override)"
+    )
+    rank.add_argument("--limit", type=int, default=25, help="rows to show")
+    rank.add_argument("--hide-falling", action="store_true", help="drop cooling categories")
+    rank.add_argument(
+        "--show-rejected", action="store_true", help="also list filtered-out categories and why"
+    )
+    rank.set_defaults(func=cmd_rank)
 
     return parser
 
@@ -77,6 +97,53 @@ def cmd_collect(args: argparse.Namespace, config: Config) -> int:
 
     _print_result(result)
     return 0
+
+
+def cmd_rank(args: argparse.Namespace, config: Config) -> int:
+    defaults = GuardConfig()
+    guards = GuardConfig(
+        min_viewer_floor=args.floor if args.floor is not None else defaults.min_viewer_floor,
+        min_avg_channels=(
+            args.min_channels if args.min_channels is not None else defaults.min_avg_channels
+        ),
+    )
+    rank_config = RankConfig(eval_days=args.days, hide_falling=args.hide_falling, guards=guards)
+
+    conn = connect(config.db, auth_token=config.turso_auth_token)
+    try:
+        result = rank_candidates(conn, SystemClock(), rank_config)
+    finally:
+        conn.close()
+
+    _print_ranking(result, limit=args.limit, show_rejected=args.show_rejected)
+    return 0
+
+
+def _print_ranking(result: RankResult, *, limit: int, show_rejected: bool) -> None:
+    if not result.candidates:
+        print("no eligible categories yet (need more samples, or loosen the guards)")
+    else:
+        header = (
+            f"{'game':<{_NAME_WIDTH}} {'viewers':>8} {'chan':>6} {'ratio':>7}  "
+            f"{'trend':<8}{'floor':>6} spike"
+        )
+        print(header)
+        print("-" * len(header))
+        for c in result.candidates[:limit]:
+            spike = "!" if c.spiking else ""
+            name = (
+                c.game_name
+                if len(c.game_name) <= _NAME_WIDTH
+                else c.game_name[: _NAME_WIDTH - 1] + "…"
+            )
+            print(
+                f"{name:<{_NAME_WIDTH}} {c.window_viewers:>8.0f} {c.window_channels:>6.1f} "
+                f"{c.ratio:>7.1f}  {c.trend:<8}{c.floor:>6} {spike}"
+            )
+    if show_rejected and result.rejected:
+        print("\nfiltered out:")
+        for r in result.rejected:
+            print(f"  {r.game_name}: {'; '.join(r.failures)}")
 
 
 def _print_result(result: CollectResult) -> None:
