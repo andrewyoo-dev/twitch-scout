@@ -6,6 +6,7 @@ re-writing the same batch must overwrite, never duplicate (handoff section 9).
 
 from __future__ import annotations
 
+import importlib.util
 import sqlite3
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -20,6 +21,7 @@ from twitch_scout.store.db import (
     connect,
     from_iso,
     is_turso_url,
+    schema_version,
     to_iso,
 )
 from twitch_scout.store.snapshots import (
@@ -29,6 +31,8 @@ from twitch_scout.store.snapshots import (
     read_batch,
     write_batch,
 )
+
+_TURSO_INSTALLED = importlib.util.find_spec("turso_serverless") is not None
 
 TS = datetime(2026, 9, 16, 2, 10, tzinfo=UTC)
 TS2 = datetime(2026, 9, 16, 3, 0, tzinfo=UTC)
@@ -54,8 +58,7 @@ def _rows() -> list[Snapshot]:
 
 
 def test_connect_sets_schema_version(conn: sqlite3.Connection) -> None:
-    version = conn.execute("PRAGMA user_version").fetchone()[0]
-    assert version == SCHEMA_VERSION == 1
+    assert schema_version(conn) == SCHEMA_VERSION == 1
 
 
 def test_migrations_are_idempotent_across_reconnects(tmp_path: Path) -> None:
@@ -65,16 +68,18 @@ def test_migrations_are_idempotent_across_reconnects(tmp_path: Path) -> None:
     first.close()
     # Reopening an existing DB must not re-run migrations or lose data.
     second = connect(db)
-    assert second.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    assert schema_version(second) == SCHEMA_VERSION
     assert len(read_batch(second, TS)) == 2
     second.close()
 
 
 def test_schema_newer_than_code_is_refused(tmp_path: Path) -> None:
     db = tmp_path / "scout.db"
-    connect(db).close()
+    connect(db).close()  # creates schema + meta schema_version row
     raw = sqlite3.connect(db)
-    raw.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 5}")
+    raw.execute(
+        "UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(SCHEMA_VERSION + 5),)
+    )
     raw.commit()
     raw.close()
     with pytest.raises(RuntimeError, match="newer than this code"):
@@ -103,8 +108,10 @@ def test_turso_url_without_token_is_rejected() -> None:
         connect("libsql://db-org.turso.io")
 
 
+@pytest.mark.skipif(
+    _TURSO_INSTALLED, reason="install-hint path only triggers when turso_serverless is absent"
+)
 def test_turso_url_without_package_gives_install_hint() -> None:
-    # turso_serverless is not installed in the dev env; the error should say how.
     with pytest.raises(StoreError, match="pip install twitch-scout"):
         connect("libsql://db-org.turso.io", auth_token="tok")
 

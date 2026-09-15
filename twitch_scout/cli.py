@@ -20,7 +20,7 @@ from twitch_scout.clock import SystemClock
 from twitch_scout.collect.collector import Collector, CollectResult
 from twitch_scout.collect.tiers import Tier
 from twitch_scout.config import Config, ConfigError
-from twitch_scout.store.db import StoreError, connect
+from twitch_scout.store.db import StoreError, connect, schema_version
 from twitch_scout.twitch.client import HelixClient, TwitchError
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
 def cmd_init_db(args: argparse.Namespace, config: Config) -> int:
     conn = connect(config.db, auth_token=config.turso_auth_token)
     try:
-        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        version = schema_version(conn)
     finally:
         conn.close()
     print(f"initialized {config.db} at schema v{version}")

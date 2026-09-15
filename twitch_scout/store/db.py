@@ -14,6 +14,10 @@ The rest of the store depends only on the small :class:`Connection` protocol and
 common DB-API subset (``execute``/``executemany``/``commit``/``rollback``), so the
 same SQL and code paths run on both. Transactions use ``commit``/``rollback`` with
 the connection in explicit-transaction mode, which behaves the same on each backend.
+
+Schema version is tracked in the ``meta`` table rather than ``PRAGMA user_version``:
+Turso rejects writing that PRAGMA ("SQL not allowed statement"), and a plain row
+works identically on both backends.
 """
 
 from __future__ import annotations
@@ -51,8 +55,9 @@ class Connection(Protocol):
 
 
 # Each entry is one atomic migration: a tuple of statements applied together. The
-# applied count is tracked in PRAGMA user_version. Append-only; never edit an entry
-# that has shipped.
+# applied count is tracked in the meta table. Append-only; never edit an entry that
+# has shipped.
+_SCHEMA_KEY = "schema_version"
 MIGRATIONS: tuple[tuple[str, ...], ...] = (
     (
         """
@@ -147,8 +152,23 @@ def _connect_turso(url: str, auth_token: str | None) -> Connection:
     return cast("Connection", turso_serverless.connect(url, auth_token=auth_token))
 
 
+def schema_version(conn: Connection) -> int:
+    """The applied schema version, read from the meta table (0 if not yet created)."""
+    if not _table_exists(conn, "meta"):
+        return 0
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (_SCHEMA_KEY,)).fetchone()
+    return int(row[0]) if row else 0
+
+
+def _table_exists(conn: Connection, name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+    ).fetchone()
+    return row is not None
+
+
 def _migrate(conn: Connection) -> None:
-    current: int = conn.execute("PRAGMA user_version").fetchone()[0]
+    current = schema_version(conn)
     if current > SCHEMA_VERSION:
         raise RuntimeError(
             f"database schema v{current} is newer than this code (v{SCHEMA_VERSION}); "
@@ -159,5 +179,8 @@ def _migrate(conn: Connection) -> None:
         with transaction(conn):
             for statement in MIGRATIONS[version]:
                 conn.execute(statement)
-            # PRAGMA user_version cannot be parameterized; version is a trusted int.
-            conn.execute(f"PRAGMA user_version = {version + 1}")
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                (_SCHEMA_KEY, str(version + 1)),
+            )
