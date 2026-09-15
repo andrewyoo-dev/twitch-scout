@@ -38,6 +38,7 @@ class Config:
     collector: CollectorConfig
     client_id: str | None
     client_secret: str | None
+    turso_auth_token: str | None
 
     def require_twitch(self) -> TwitchCredentials:
         if not self.client_id or not self.client_secret:
@@ -64,6 +65,7 @@ class Config:
             collector=collector,
             client_id=env.get("TWITCH_CLIENT_ID"),
             client_secret=env.get("TWITCH_CLIENT_SECRET"),
+            turso_auth_token=env.get("TURSO_AUTH_TOKEN"),
         )
 
 

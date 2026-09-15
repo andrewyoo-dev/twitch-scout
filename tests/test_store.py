@@ -14,7 +14,14 @@ from pathlib import Path
 import pytest
 
 from twitch_scout.collect.tiers import Tier
-from twitch_scout.store.db import SCHEMA_VERSION, connect, from_iso, to_iso
+from twitch_scout.store.db import (
+    SCHEMA_VERSION,
+    StoreError,
+    connect,
+    from_iso,
+    is_turso_url,
+    to_iso,
+)
 from twitch_scout.store.snapshots import (
     Snapshot,
     batch_timestamps,
@@ -72,6 +79,34 @@ def test_schema_newer_than_code_is_refused(tmp_path: Path) -> None:
     raw.close()
     with pytest.raises(RuntimeError, match="newer than this code"):
         connect(db)
+
+
+# --- backend dispatch ---
+
+
+@pytest.mark.parametrize(
+    ("database", "expected"),
+    [
+        ("libsql://db-org.turso.io", True),
+        ("https://db-org.turso.io", True),
+        ("scout.db", False),
+        (":memory:", False),
+        ("/data/scout.db", False),
+    ],
+)
+def test_is_turso_url(database: str, expected: bool) -> None:
+    assert is_turso_url(database) is expected
+
+
+def test_turso_url_without_token_is_rejected() -> None:
+    with pytest.raises(StoreError, match="auth token"):
+        connect("libsql://db-org.turso.io")
+
+
+def test_turso_url_without_package_gives_install_hint() -> None:
+    # turso_serverless is not installed in the dev env; the error should say how.
+    with pytest.raises(StoreError, match="pip install twitch-scout"):
+        connect("libsql://db-org.turso.io", auth_token="tok")
 
 
 # --- write / read ---

@@ -7,12 +7,11 @@ mid-run — handoff section 9) overwrites rather than duplicates, keyed on (ts, 
 
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 
 from twitch_scout.collect.tiers import Tier
-from twitch_scout.store.db import from_iso, to_iso, transaction
+from twitch_scout.store.db import Connection, from_iso, to_iso, transaction
 
 
 @dataclass(frozen=True)
@@ -54,7 +53,7 @@ ON CONFLICT (ts, game_id) DO UPDATE SET
 
 
 def write_batch(
-    conn: sqlite3.Connection,
+    conn: Connection,
     ts: datetime,
     tier: Tier,
     rows: list[Snapshot],
@@ -74,15 +73,19 @@ def write_batch(
     return len(params)
 
 
-def has_batch(conn: sqlite3.Connection, ts: datetime) -> bool:
+def has_batch(conn: Connection, ts: datetime) -> bool:
     """Whether any row already exists for this slot — lets the collector skip a
     slot that was already sampled instead of spending API calls to overwrite it."""
     row = conn.execute("SELECT 1 FROM snapshots WHERE ts = ? LIMIT 1", (to_iso(ts),)).fetchone()
     return row is not None
 
 
-def read_batch(conn: sqlite3.Connection, ts: datetime) -> list[Snapshot]:
-    """Read back one batch's rows, ordered by viewers descending."""
+def read_batch(conn: Connection, ts: datetime) -> list[Snapshot]:
+    """Read back one batch's rows, ordered by viewers descending.
+
+    Columns are read positionally so the same code works whether the backend
+    returns tuples (Turso) or sqlite3.Row.
+    """
     cursor = conn.execute(
         """
         SELECT game_id, game_name, viewers, channels, truncated
@@ -93,17 +96,17 @@ def read_batch(conn: sqlite3.Connection, ts: datetime) -> list[Snapshot]:
     )
     return [
         Snapshot(
-            game_id=row["game_id"],
-            game_name=row["game_name"],
-            viewers=row["viewers"],
-            channels=row["channels"],
-            truncated=bool(row["truncated"]),
+            game_id=row[0],
+            game_name=row[1],
+            viewers=row[2],
+            channels=row[3],
+            truncated=bool(row[4]),
         )
         for row in cursor
     ]
 
 
-def batch_timestamps(conn: sqlite3.Connection) -> list[datetime]:
+def batch_timestamps(conn: Connection) -> list[datetime]:
     """Every distinct batch timestamp on record, oldest first."""
     cursor = conn.execute("SELECT DISTINCT ts FROM snapshots ORDER BY ts")
-    return [from_iso(row["ts"]) for row in cursor]
+    return [from_iso(row[0]) for row in cursor]

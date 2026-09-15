@@ -10,7 +10,7 @@ Skipping is a deliberate, logged degradation — not a swallowed error (standard
 from __future__ import annotations
 
 import logging
-from typing import Any, TypeVar
+from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -49,12 +49,11 @@ class TokenResponse(BaseModel):
     token_type: str = ""
 
 
-_Item = TypeVar("_Item", bound=BaseModel)
-
-
-def _parse_items(items: list[dict[str, Any]], model: type[_Item]) -> tuple[list[_Item], int]:
+def _parse_items[ItemT: BaseModel](
+    items: list[dict[str, Any]], model: type[ItemT]
+) -> tuple[list[ItemT], int]:
     """Validate each item; return the valid ones and the count skipped as invalid."""
-    valid: list[_Item] = []
+    valid: list[ItemT] = []
     skipped = 0
     for item in items:
         try:

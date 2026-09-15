@@ -20,7 +20,7 @@ from twitch_scout.clock import SystemClock
 from twitch_scout.collect.collector import Collector, CollectResult
 from twitch_scout.collect.tiers import Tier
 from twitch_scout.config import Config, ConfigError
-from twitch_scout.store.db import connect
+from twitch_scout.store.db import StoreError, connect
 from twitch_scout.twitch.client import HelixClient, TwitchError
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def cmd_init_db(args: argparse.Namespace, config: Config) -> int:
-    conn = connect(config.db)
+    conn = connect(config.db, auth_token=config.turso_auth_token)
     try:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
     finally:
@@ -67,7 +67,7 @@ def cmd_collect(args: argparse.Namespace, config: Config) -> int:
         collector_config = replace(collector_config, top_n=args.top)
     tier = None if args.tier == "auto" else Tier(args.tier)
 
-    conn = connect(config.db)
+    conn = connect(config.db, auth_token=config.turso_auth_token)
     try:
         with HelixClient.create(creds.client_id, creds.client_secret) as client:
             collector = Collector(client, conn, SystemClock(), config=collector_config)
@@ -106,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
         config = Config.from_env()
         result: int = args.func(args, config)
         return result
-    except (ConfigError, TwitchError) as exc:
+    except (ConfigError, StoreError, TwitchError) as exc:
         # Expected operational failures: report cleanly, no traceback.
         logger.debug("command failed", exc_info=True)
         print(f"error: {exc}", file=sys.stderr)

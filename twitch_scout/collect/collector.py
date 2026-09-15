@@ -18,7 +18,6 @@ Failure policy (handoff section 2, 9):
 from __future__ import annotations
 
 import logging
-import sqlite3
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -31,6 +30,7 @@ from twitch_scout.collect.tiers import (
     resolve,
     slot_for,
 )
+from twitch_scout.store.db import Connection
 from twitch_scout.store.snapshots import Snapshot, has_batch, write_batch
 from twitch_scout.twitch.client import StreamsResult, TwitchError
 from twitch_scout.twitch.models import HelixGame
@@ -76,7 +76,7 @@ class Collector:
     def __init__(
         self,
         client: SupportsHelix,
-        conn: sqlite3.Connection,
+        conn: Connection,
         clock: Clock,
         *,
         config: CollectorConfig | None = None,
