@@ -5,14 +5,19 @@ name: collect
 # cover the possibilities; the collector picks window vs baseline and skips slots it
 # has already sampled. Times are UTC.
 #
-#   - hourly baseline, always
-#   - every ~10 min during the UTC hours that can hold a 18:30-22:30 PT window on a
-#     Tue/Thu/Sat. PT evening lands on Wed/Fri/Sun in UTC (dow 3,5,0); PDT is
-#     01:30-05:30 UTC and PST is 02:30-06:30 UTC, so hours 1-6 cover both.
+# GitHub drops/delays scheduled runs under load, and the top of the hour (:00) is the
+# most congested slot, so both crons are offset off :00 and kept modest — 10-minute
+# window sampling was finer than needed (handoff open questions). The idempotent slot
+# design absorbs whatever GitHub skips.
+#
+#   - hourly baseline at :23
+#   - every 20 min (offset) during the UTC hours that can hold a 18:30-22:30 PT
+#     window on a Tue/Thu/Sat. PT evening lands on Wed/Fri/Sun in UTC (dow 3,5,0);
+#     PDT is 01:30-05:30 UTC and PST is 02:30-06:30 UTC, so hours 1-6 cover both.
 on:
   schedule:
-    - cron: "0 * * * *"
-    - cron: "*/10 1-6 * * 3,5,0"
+    - cron: "23 * * * *"
+    - cron: "7,27,47 1-6 * * 3,5,0"
   workflow_dispatch: {}
 
 # Never let two samples run at once; queue the next instead of overlapping writes.
