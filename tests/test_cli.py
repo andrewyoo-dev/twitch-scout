@@ -29,6 +29,29 @@ def test_parser_collect_overrides() -> None:
     assert args.force is True
 
 
+def test_parser_rank_defaults() -> None:
+    args = build_parser().parse_args(["rank"])
+    assert args.command == "rank"
+    assert args.days == 14
+    assert args.floor is None
+    assert args.min_channels is None
+    assert args.max_channels is None
+    assert args.concentration_penalty is None
+    assert args.limit == 25
+    assert args.hide_falling is False
+    assert args.show_rejected is False
+
+
+def test_parser_rank_max_channels() -> None:
+    args = build_parser().parse_args(["rank", "--max-channels", "50"])
+    assert args.max_channels == 50.0
+
+
+def test_parser_rank_concentration_penalty() -> None:
+    args = build_parser().parse_args(["rank", "--concentration-penalty", "0.7"])
+    assert args.concentration_penalty == 0.7
+
+
 def test_parser_rejects_unknown_tier() -> None:
     with pytest.raises(SystemExit):
         build_parser().parse_args(["collect", "--tier", "nonsense"])

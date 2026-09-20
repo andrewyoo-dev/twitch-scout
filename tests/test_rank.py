@@ -100,11 +100,40 @@ def test_hide_falling_drops_cooling_categories(conn: sqlite3.Connection) -> None
     assert "good" in ids
 
 
-def test_ranked_by_ratio_descending(conn: sqlite3.Connection) -> None:
+def test_ranked_by_score_descending(conn: sqlite3.Connection) -> None:
     _seed_all(conn)
     candidates = rank_candidates(conn, CLOCK, RankConfig()).candidates
-    ratios = [c.ratio for c in candidates]
-    assert ratios == sorted(ratios, reverse=True)
+    scores = [c.score for c in candidates]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_score_prefers_spread_over_single_giant(conn: sqlite3.Connection) -> None:
+    # Two eligible categories with the SAME total viewers: one spread across many
+    # channels (a 2-6 viewer channel can surface), one carried by a few big streams
+    # (it would be buried). The spread category must rank higher.
+    _seed(conn, "spread", "The Plant Shop", _recent(600, 30) + _older(600, 30))
+    _seed(conn, "giant", "Last Pirates", _recent(600, 3) + _older(600, 3))
+    candidates = rank_candidates(conn, CLOCK, RankConfig()).candidates
+    order = [c.game_id for c in candidates]
+    assert order.index("spread") < order.index("giant")
+    # The old ratio sort would have inverted this: the giant has the bigger ratio.
+    by_id = {c.game_id: c for c in candidates}
+    assert by_id["giant"].ratio > by_id["spread"].ratio
+
+
+def test_concentration_penalty_zero_falls_back_to_viewers(conn: sqlite3.Connection) -> None:
+    # penalty=0 => score is raw viewers, so the single-giant category (same viewers,
+    # fewer channels) is no longer down-ranked below the spread one.
+    _seed(conn, "spread", "The Plant Shop", _recent(600, 30) + _older(600, 30))
+    _seed(conn, "giant", "Last Pirates", _recent(600, 3) + _older(600, 3))
+    config = RankConfig(concentration_penalty=0.0)
+    by_id = {c.game_id: c for c in rank_candidates(conn, CLOCK, config).candidates}
+    assert by_id["spread"].score == pytest.approx(by_id["giant"].score)
+
+
+def test_rank_config_rejects_out_of_range_penalty() -> None:
+    with pytest.raises(ValueError, match="concentration_penalty"):
+        RankConfig(concentration_penalty=1.5)
 
 
 def test_floor_is_robust_to_the_spike(conn: sqlite3.Connection) -> None:

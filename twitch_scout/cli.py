@@ -13,6 +13,7 @@ Built on argparse (boring and static — coding standard 7). Commands wired so f
 from __future__ import annotations
 
 import argparse
+import contextlib
 import logging
 import sys
 from dataclasses import replace
@@ -60,6 +61,20 @@ def build_parser() -> argparse.ArgumentParser:
     rank.add_argument(
         "--min-channels", type=float, default=None, help="minimum window channels (guard override)"
     )
+    rank.add_argument(
+        "--max-channels",
+        type=float,
+        default=None,
+        help="maximum window channels: drop giant categories (Just Chatting, WoW) "
+        "where a 2-6 viewer channel is buried (default: no upper limit)",
+    )
+    rank.add_argument(
+        "--concentration-penalty",
+        type=float,
+        default=None,
+        help="how hard to down-rank single-giant categories: 0 = raw viewers, "
+        "1 = channel count only, 0.5 = geometric mean (default)",
+    )
     rank.add_argument("--limit", type=int, default=25, help="rows to show")
     rank.add_argument("--hide-falling", action="store_true", help="drop cooling categories")
     rank.add_argument(
@@ -106,8 +121,21 @@ def cmd_rank(args: argparse.Namespace, config: Config) -> int:
         min_avg_channels=(
             args.min_channels if args.min_channels is not None else defaults.min_avg_channels
         ),
+        max_avg_channels=(
+            args.max_channels if args.max_channels is not None else defaults.max_avg_channels
+        ),
     )
-    rank_config = RankConfig(eval_days=args.days, hide_falling=args.hide_falling, guards=guards)
+    rank_defaults = RankConfig()
+    rank_config = RankConfig(
+        eval_days=args.days,
+        hide_falling=args.hide_falling,
+        concentration_penalty=(
+            args.concentration_penalty
+            if args.concentration_penalty is not None
+            else rank_defaults.concentration_penalty
+        ),
+        guards=guards,
+    )
 
     conn = connect(config.db, auth_token=config.turso_auth_token)
     try:
@@ -124,7 +152,7 @@ def _print_ranking(result: RankResult, *, limit: int, show_rejected: bool) -> No
         print("no eligible categories yet (need more samples, or loosen the guards)")
     else:
         header = (
-            f"{'game':<{_NAME_WIDTH}} {'viewers':>8} {'chan':>6} {'ratio':>7}  "
+            f"{'game':<{_NAME_WIDTH}} {'score':>7} {'viewers':>8} {'chan':>6} {'ratio':>7}  "
             f"{'trend':<8}{'floor':>6} spike"
         )
         print(header)
@@ -137,8 +165,8 @@ def _print_ranking(result: RankResult, *, limit: int, show_rejected: bool) -> No
                 else c.game_name[: _NAME_WIDTH - 1] + "…"
             )
             print(
-                f"{name:<{_NAME_WIDTH}} {c.window_viewers:>8.0f} {c.window_channels:>6.1f} "
-                f"{c.ratio:>7.1f}  {c.trend:<8}{c.floor:>6} {spike}"
+                f"{name:<{_NAME_WIDTH}} {c.score:>7.0f} {c.window_viewers:>8.0f} "
+                f"{c.window_channels:>6.1f} {c.ratio:>7.1f}  {c.trend:<8}{c.floor:>6} {spike}"
             )
     if show_rejected and result.rejected:
         print("\nfiltered out:")
@@ -165,7 +193,21 @@ def _configure_logging(verbose: bool) -> None:
     )
 
 
+def _force_utf8_output() -> None:
+    """Twitch category names are UTF-8 (Ōkami, 日本語, …) and the ranking table uses
+    an ellipsis; the default Windows console codec (cp1252) raises on both. Reconfigure
+    the streams to UTF-8 so output never crashes on a legitimate name. Best-effort: a
+    non-reconfigurable stream (e.g. a captured pipe) is left as-is.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            with contextlib.suppress(ValueError, OSError):
+                reconfigure(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _force_utf8_output()
     parser = build_parser()
     args = parser.parse_args(argv)
     _configure_logging(args.verbose)
