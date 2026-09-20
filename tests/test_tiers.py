@@ -81,11 +81,11 @@ def test_dst_and_standard_time_both_resolve_by_wall_clock() -> None:
 # --- resolve_slot: tier + canonical timestamp ---
 
 
-def test_window_slot_floors_to_ten_minutes() -> None:
+def test_window_slot_floors_to_granularity() -> None:
     slot = resolve_slot(_pt(2026, 9, 15, 19, 17))
     assert slot.tier is Tier.WINDOW
-    # 19:17 PDT == 02:17 UTC, floored to the 10-min boundary -> 02:10 UTC.
-    assert slot.ts == datetime(2026, 9, 16, 2, 10, tzinfo=UTC)
+    # 19:17 PDT == 02:17 UTC, floored to the 15-min boundary -> 02:15 UTC.
+    assert slot.ts == datetime(2026, 9, 16, 2, 15, tzinfo=UTC)
 
 
 def test_baseline_slot_floors_to_the_hour() -> None:
@@ -98,19 +98,11 @@ def test_baseline_slot_floors_to_the_hour() -> None:
 
 
 def test_two_fires_in_the_same_window_slot_share_a_timestamp() -> None:
-    # Idempotency: a jittered re-fire inside the same 10-min slot maps to the same
+    # Idempotency: a jittered re-fire inside the same 15-min slot maps to the same
     # batch ts, so the snapshot write overwrites rather than duplicates.
-    a = resolve_slot(
-        _pt(
-            2026,
-            9,
-            15,
-            19,
-            12,
-        )
-    )
-    b = resolve_slot(_pt(2026, 9, 15, 19, 18))
-    assert a.ts == b.ts == datetime(2026, 9, 16, 2, 10, tzinfo=UTC)
+    a = resolve_slot(_pt(2026, 9, 15, 19, 16))
+    b = resolve_slot(_pt(2026, 9, 15, 19, 22))
+    assert a.ts == b.ts == datetime(2026, 9, 16, 2, 15, tzinfo=UTC)
 
 
 def test_window_takes_priority_over_baseline_on_the_hour() -> None:
@@ -176,11 +168,11 @@ def test_slot_is_hashable_and_frozen() -> None:
 # --- slot_for: forced tier for manual/backfill runs ---
 
 
-def test_slot_for_forces_window_with_ten_minute_floor() -> None:
-    # A Monday (never a real window) forced to WINDOW still floors to 10 minutes.
+def test_slot_for_forces_window_with_granularity_floor() -> None:
+    # A Monday (never a real window) forced to WINDOW still floors to the granularity.
     slot = slot_for(_pt(2026, 9, 14, 15, 47), Tier.WINDOW)
     assert slot.tier is Tier.WINDOW
-    assert slot.ts.minute % 10 == 0
+    assert slot.ts.minute % 15 == 0
     assert slot.ts.second == 0
 
 

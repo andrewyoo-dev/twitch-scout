@@ -2,18 +2,20 @@
 
 Two tiers (handoff section 5):
 
-  * WINDOW  — Tue/Thu/Sat, 18:30-22:30 PT, sampled every ~10 min. Decision-grade.
-  * BASELINE — every hour otherwise, for trend and hour-of-day profiles.
+  * WINDOW (Tue/Thu/Sat, 18:30-22:30 PT, sampled every ~15 min). Decision-grade.
+  * BASELINE (every hour otherwise), for trend and hour-of-day profiles.
 
-Everything here is pure over an injected clock, so the whole schedule — including
-daylight-saving transitions — is testable without waiting for a real Tuesday. The
+Everything here is pure over an injected clock, so the whole schedule (including
+daylight-saving transitions) is testable without waiting for a real Tuesday. The
 instant is converted to Pacific time via ``zoneinfo``, which knows about DST, so we
 never hand-roll UTC cron arithmetic.
 
 The tier decision also fixes the canonical *slot* timestamp for the batch. Window
-fires are floored to the 10-minute boundary and baseline fires to the hour, so a
+fires are floored to the granularity boundary and baseline fires to the hour, so a
 cron that fires late or twice within the same slot resolves to the same timestamp
-and the write stays idempotent (handoff section 9).
+and the write stays idempotent (handoff section 9). The granularity matches the
+trigger cadence (15 min) so a late fire stays in its intended slot instead of
+colliding with the next one.
 """
 
 from __future__ import annotations
@@ -50,7 +52,7 @@ class StreamSchedule:
     start: time = time(18, 30)
     end: time = time(22, 30)
     tz: ZoneInfo = PACIFIC
-    window_granularity_min: int = 10
+    window_granularity_min: int = 15
 
     def __post_init__(self) -> None:
         if not self.weekdays:
