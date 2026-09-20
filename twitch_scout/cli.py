@@ -99,7 +99,12 @@ def cmd_collect(args: argparse.Namespace, config: Config) -> int:
     creds = config.require_twitch()  # ConfigError if unset
     collector_config = config.collector
     if args.top is not None:
-        collector_config = replace(collector_config, top_n=args.top)
+        try:
+            collector_config = replace(collector_config, top_n=args.top)
+        except ValueError as exc:
+            # CollectorConfig validates the range; report it like any config error
+            # rather than letting the ValueError surface as a traceback.
+            raise ConfigError(str(exc)) from exc
     tier = None if args.tier == "auto" else Tier(args.tier)
 
     conn = connect(config.db, auth_token=config.turso_auth_token)
@@ -115,6 +120,10 @@ def cmd_collect(args: argparse.Namespace, config: Config) -> int:
 
 
 def cmd_rank(args: argparse.Namespace, config: Config) -> int:
+    if args.limit < 1:
+        # Validate before touching the DB; a zero/negative limit otherwise slices the
+        # results silently ([:0] shows nothing, [:-3] drops the tail) with exit 0.
+        raise ConfigError("--limit must be >= 1")
     rank_config = _rank_config_from_args(args)
 
     conn = connect(config.db, auth_token=config.turso_auth_token)

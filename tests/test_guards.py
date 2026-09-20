@@ -172,6 +172,13 @@ def test_partition_splits_and_preserves_order() -> None:
         ({"min_sample_count": 0}, "min_sample_count"),
         ({"max_avg_channels": 1.0, "min_avg_channels": 3.0}, "max_avg_channels"),
         ({"min_distinct_streamers": 0}, "min_distinct_streamers"),
+        # NaN escapes every ordering check, so it must be rejected explicitly (else the
+        # guard silently does nothing); +/-inf is not a meaningful threshold either.
+        ({"min_viewer_floor": float("nan")}, "finite"),
+        ({"min_avg_channels": float("nan")}, "finite"),
+        ({"max_avg_channels": float("nan")}, "finite"),
+        ({"min_viewer_floor": float("inf")}, "finite"),
+        ({"max_avg_channels": float("inf")}, "finite"),
     ],
 )
 def test_invalid_config_rejected(kwargs: dict[str, float], message: str) -> None:

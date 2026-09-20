@@ -12,6 +12,7 @@ from the query layer; this module only decides eligibility.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 
@@ -62,6 +63,17 @@ class GuardConfig:
     def __post_init__(self) -> None:
         # Validate the config at its boundary: nonsensical thresholds are a bug,
         # not something to discover later as mysteriously-empty candidate lists.
+        #
+        # Finiteness is checked first and explicitly: NaN escapes every ordering
+        # check (nan < 0 and value > nan are both False), so a NaN threshold would
+        # silently disable its guard; +/-inf is likewise not a meaningful bound
+        # (None is how "no upper limit" is expressed, not inf).
+        if not math.isfinite(self.min_viewer_floor):
+            raise ValueError("min_viewer_floor must be a finite number")
+        if not math.isfinite(self.min_avg_channels):
+            raise ValueError("min_avg_channels must be a finite number")
+        if self.max_avg_channels is not None and not math.isfinite(self.max_avg_channels):
+            raise ValueError("max_avg_channels must be a finite number")
         if self.min_viewer_floor < 0:
             raise ValueError("min_viewer_floor must be >= 0")
         if self.min_avg_channels < 0:

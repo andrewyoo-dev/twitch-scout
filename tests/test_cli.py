@@ -119,6 +119,59 @@ def test_rank_max_channels_below_min_exits_cleanly(
     assert "error:" in capsys.readouterr().err
 
 
+def test_collect_bad_top_exits_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("SCOUT_DB", str(tmp_path / "scout.db"))
+    monkeypatch.setenv("TWITCH_CLIENT_ID", "x")
+    monkeypatch.setenv("TWITCH_CLIENT_SECRET", "x")
+
+    code = main(["collect", "--top", "-5"])
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "top_n" in err
+
+
+@pytest.mark.parametrize("limit", ["0", "-3"])
+def test_rank_bad_limit_exits_cleanly(
+    limit: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("SCOUT_DB", str(tmp_path / "scout.db"))
+    main(["init-db"])
+    capsys.readouterr()
+
+    code = main(["rank", "--limit", limit])
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "limit" in err
+
+
+@pytest.mark.parametrize("flag", ["--floor", "--min-channels", "--max-channels"])
+def test_rank_nan_float_exits_cleanly(
+    flag: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("SCOUT_DB", str(tmp_path / "scout.db"))
+    main(["init-db"])
+    capsys.readouterr()
+
+    code = main(["rank", flag, "nan"])
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "finite" in err
+
+
 def test_bad_env_exits_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
