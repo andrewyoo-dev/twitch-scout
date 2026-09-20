@@ -22,6 +22,15 @@ from twitch_scout.rank.queries import GameAggregate, fetch_aggregates, fetch_win
 from twitch_scout.rank.stats import median, percentile
 from twitch_scout.rank.trend import Trend, classify_trend, is_spike
 from twitch_scout.store.db import Connection
+from twitch_scout.store.steam import OwnedGame, fetch_owned
+
+
+def _relaxed_owned_guards() -> GuardConfig:
+    # Owned games are the point of the section, so the guards only exclude the truly
+    # dead (near-zero demand): a much lower viewer floor, a single channel, and a
+    # single sample. A resolved owned game with no live streams reads as 0 viewers
+    # and is filtered by the floor, which is exactly "exclude the dead game".
+    return GuardConfig(min_viewer_floor=10.0, min_avg_channels=1.0, min_sample_count=1)
 
 
 @dataclass(frozen=True)
@@ -41,6 +50,9 @@ class RankConfig:
     # a 2-6 viewer channel can actually appear in. See the memory note dated 2026-09-20.
     concentration_penalty: float = 0.75
     guards: GuardConfig = field(default_factory=GuardConfig)
+    # Owned games get their own section with relaxed guards, so a game the streamer
+    # owns but that ranks low still surfaces (the whole reason for the Steam source).
+    owned_guards: GuardConfig = field(default_factory=_relaxed_owned_guards)
 
     def __post_init__(self) -> None:
         # Validate at the boundary: a nonsensical config is a bug, not something to
@@ -65,12 +77,14 @@ class Candidate:
     floor: int
     spiking: bool
     window_samples: int
+    playtime_minutes: int | None = None  # set for owned candidates only
 
 
 @dataclass(frozen=True)
 class RankResult:
     candidates: list[Candidate]  # eligible, best first
     rejected: list[GuardResult]  # filtered out, with reasons
+    owned: list[Candidate]  # owned games, relaxed guards, best first
 
 
 def rank_candidates(conn: Connection, clock: Clock, config: RankConfig) -> RankResult:
@@ -78,23 +92,34 @@ def rank_candidates(conn: Connection, clock: Clock, config: RankConfig) -> RankR
         conn, clock, eval_days=config.eval_days, trend_window_days=config.trend_window_days
     )
     by_id = {agg.game_id: agg for agg in aggregates}
+    owned_by_id = {game.twitch_game_id: game for game in fetch_owned(conn)}
 
     stats = [_to_stats(agg) for agg in aggregates]
     eligible, rejected = partition(stats, config.guards)
 
+    # The owned section runs relaxed guards over the owned-only subset, so an owned
+    # game that the strict guards drop can still surface here.
+    owned_stats = [s for s in stats if s.game_id in owned_by_id]
+    owned_eligible, _ = partition(owned_stats, config.owned_guards)
+
     eligible_ids = [result.game_id for result in eligible]
-    series = fetch_window_series(conn, clock, eligible_ids, eval_days=config.eval_days)
+    owned_ids = [result.game_id for result in owned_eligible]
+    # One series fetch for the union of both sets.
+    series = fetch_window_series(
+        conn, clock, list(dict.fromkeys(eligible_ids + owned_ids)), eval_days=config.eval_days
+    )
 
-    candidates = [_to_candidate(by_id[gid], series.get(gid, []), config) for gid in eligible_ids]
-    if config.hide_falling:
-        candidates = [c for c in candidates if c.trend is not Trend.FALLING]
+    def build(ids: list[str]) -> list[Candidate]:
+        cands = [_to_candidate(by_id[gid], series.get(gid, []), config, owned_by_id) for gid in ids]
+        if config.hide_falling:
+            cands = [c for c in cands if c.trend is not Trend.FALLING]
+        # Sort by the discoverability score, not raw viewers-per-channel: the latter
+        # floats single-giant categories (Last Pirates: 852 v/ch, one streamer) that a
+        # 2-6 viewer channel is buried under. Break ties on raw window viewers.
+        cands.sort(key=lambda c: (c.score, c.window_viewers), reverse=True)
+        return cands
 
-    # Sort by the discoverability score, not raw viewers-per-channel: the latter
-    # floats single-giant categories (Last Pirates: 852 v/ch, one streamer) that a
-    # 2-6 viewer channel is buried under. Break ties on raw window viewers so a
-    # bigger real audience wins.
-    candidates.sort(key=lambda c: (c.score, c.window_viewers), reverse=True)
-    return RankResult(candidates=candidates, rejected=rejected)
+    return RankResult(candidates=build(eligible_ids), rejected=rejected, owned=build(owned_ids))
 
 
 def _to_stats(agg: GameAggregate) -> CandidateStats:
@@ -107,12 +132,18 @@ def _to_stats(agg: GameAggregate) -> CandidateStats:
     )
 
 
-def _to_candidate(agg: GameAggregate, viewers: list[int], config: RankConfig) -> Candidate:
+def _to_candidate(
+    agg: GameAggregate,
+    viewers: list[int],
+    config: RankConfig,
+    owned_by_id: dict[str, OwnedGame],
+) -> Candidate:
     ratio = agg.avg_viewers / agg.avg_channels if agg.avg_channels else 0.0
     score = _discoverability_score(agg.avg_viewers, agg.avg_channels, config.concentration_penalty)
     trend = classify_trend(agg.avg_viewers_recent, agg.avg_viewers, config.trend_eps)
     floor = int(percentile(viewers, config.floor_percentile)) if viewers else 0
     spiking = is_spike(viewers[-1], median(viewers), config.spike_factor) if viewers else False
+    owned = owned_by_id.get(agg.game_id)
     return Candidate(
         game_id=agg.game_id,
         game_name=agg.game_name,
@@ -124,6 +155,7 @@ def _to_candidate(agg: GameAggregate, viewers: list[int], config: RankConfig) ->
         floor=floor,
         spiking=spiking,
         window_samples=agg.window_samples,
+        playtime_minutes=owned.playtime_minutes if owned else None,
     )
 
 

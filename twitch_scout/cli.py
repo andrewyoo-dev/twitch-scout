@@ -23,7 +23,7 @@ from twitch_scout.collect.collector import Collector, CollectResult
 from twitch_scout.collect.tiers import Tier
 from twitch_scout.config import Config, ConfigError
 from twitch_scout.rank.guards import GuardConfig
-from twitch_scout.rank.rank import RankConfig, RankResult, rank_candidates
+from twitch_scout.rank.rank import Candidate, RankConfig, RankResult, rank_candidates
 from twitch_scout.steam.client import SteamClient, SteamError
 from twitch_scout.steam.sync import load_candidates, sync_owned_games
 from twitch_scout.store.db import StoreError, connect, schema_version
@@ -243,10 +243,34 @@ def _print_ranking(result: RankResult, *, limit: int, show_rejected: bool) -> No
                 f"{name:<{_NAME_WIDTH}} {c.score:>7.0f} {c.window_viewers:>8.0f} "
                 f"{c.window_channels:>6.1f} {c.ratio:>7.1f}  {c.trend:<8}{c.floor:>6} {spike}"
             )
+    _print_owned(result.owned)
     if show_rejected and result.rejected:
         print("\nfiltered out:")
         for r in result.rejected:
             print(f"  {r.game_name}: {'; '.join(r.failures)}")
+
+
+def _print_owned(owned: list[Candidate]) -> None:
+    if not owned:
+        return
+    print("\nfrom your Steam library (relaxed guards):")
+    header = (
+        f"{'game':<{_NAME_WIDTH}} {'score':>7} {'viewers':>8} {'chan':>6} {'ratio':>7} "
+        f"{'played':>7}  {'trend':<8}{'floor':>6} spike"
+    )
+    print(header)
+    print("-" * len(header))
+    for c in owned:
+        spike = "!" if c.spiking else ""
+        name = (
+            c.game_name if len(c.game_name) <= _NAME_WIDTH else c.game_name[: _NAME_WIDTH - 1] + "…"
+        )
+        played = f"{c.playtime_minutes // 60}h" if c.playtime_minutes is not None else "-"
+        print(
+            f"{name:<{_NAME_WIDTH}} {c.score:>7.0f} {c.window_viewers:>8.0f} "
+            f"{c.window_channels:>6.1f} {c.ratio:>7.1f} {played:>7}  "
+            f"{c.trend:<8}{c.floor:>6} {spike}"
+        )
 
 
 def _print_result(result: CollectResult) -> None:

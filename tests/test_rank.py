@@ -170,6 +170,61 @@ def test_empty_store_returns_nothing(conn: sqlite3.Connection) -> None:
     result = rank_candidates(conn, CLOCK, RankConfig())
     assert result.candidates == []
     assert result.rejected == []
+    assert result.owned == []
+
+
+# --- owned section (Steam library) ---
+
+
+def _mark_owned(conn: sqlite3.Connection, twitch_game_id: str, name: str, playtime: int) -> None:
+    from twitch_scout.store.steam import SteamGame, upsert_steam_games
+
+    upsert_steam_games(
+        conn,
+        [
+            SteamGame(
+                appid=(hash(twitch_game_id) & 0xFFFFFF) + 1,
+                name=name,
+                playtime_minutes=playtime,
+                twitch_game_id=twitch_game_id,
+                twitch_game_name=name,
+            )
+        ],
+        NOW,
+    )
+
+
+def test_owned_section_surfaces_a_low_ranked_owned_game(conn: sqlite3.Connection) -> None:
+    # An owned game below the strict floor (100) but above the relaxed one (10): it is
+    # absent from the main list yet present in the owned section, with playtime.
+    _seed(conn, "mine", "Cozy Cove", _recent(40, 4) + _older(40, 4))
+    _mark_owned(conn, "mine", "Cozy Cove", playtime=600)
+    result = rank_candidates(conn, CLOCK, RankConfig())
+
+    assert "mine" not in {c.game_id for c in result.candidates}  # strict floor drops it
+    owned = {c.game_id: c for c in result.owned}
+    assert "mine" in owned
+    assert owned["mine"].playtime_minutes == 600
+
+
+def test_owned_dead_game_is_excluded_by_relaxed_floor(conn: sqlite3.Connection) -> None:
+    # A resolved owned game with no live streams reads as 0 viewers -> below even the
+    # relaxed floor -> excluded (not a useful streaming target).
+    _seed(conn, "dead", "Obscure Owned", _recent(0, 0) + _older(0, 0))
+    _mark_owned(conn, "dead", "Obscure Owned", playtime=5)
+    result = rank_candidates(conn, CLOCK, RankConfig())
+    assert "dead" not in {c.game_id for c in result.owned}
+
+
+def test_owned_section_empty_without_steam_data(conn: sqlite3.Connection) -> None:
+    _seed_all(conn)  # no steam_games rows
+    assert rank_candidates(conn, CLOCK, RankConfig()).owned == []
+
+
+def test_main_list_candidates_have_no_playtime(conn: sqlite3.Connection) -> None:
+    _seed_all(conn)
+    for c in rank_candidates(conn, CLOCK, RankConfig()).candidates:
+        assert c.playtime_minutes is None
 
 
 def test_lenient_floor_admits_more(conn: sqlite3.Connection) -> None:
