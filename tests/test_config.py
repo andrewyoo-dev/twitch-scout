@@ -49,6 +49,19 @@ def test_require_twitch_raises_when_missing() -> None:
         config.require_twitch()
 
 
+def test_require_steam_returns_credentials() -> None:
+    config = Config.from_env({"STEAM_API_KEY": "key", "STEAM_ID": "kamagui"})
+    creds = config.require_steam()
+    assert creds.api_key == "key"
+    assert creds.steam_id == "kamagui"
+
+
+def test_require_steam_raises_when_missing() -> None:
+    config = Config.from_env({"STEAM_API_KEY": "key"})  # STEAM_ID missing
+    with pytest.raises(ConfigError, match="must be set"):
+        config.require_steam()
+
+
 def test_non_integer_env_is_rejected() -> None:
     with pytest.raises(ConfigError, match="SCOUT_TOP_N must be an integer"):
         Config.from_env({"SCOUT_TOP_N": "lots"})

@@ -185,6 +185,21 @@ def test_rank_excessive_days_exits_cleanly(
     assert "eval_days" in err
 
 
+def test_steam_sync_without_credentials_exits_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("SCOUT_DB", str(tmp_path / "scout.db"))
+    for key in ("STEAM_API_KEY", "STEAM_ID"):
+        monkeypatch.delenv(key, raising=False)
+
+    code = main(["steam-sync"])
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "STEAM_API_KEY" in err
+
+
 def test_bad_env_exits_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

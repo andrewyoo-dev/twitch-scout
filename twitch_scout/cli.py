@@ -2,12 +2,11 @@
 
 Built on argparse (boring and static — coding standard 7). Commands wired so far:
 
-  * ``scout init-db``  — create/migrate the database.
-  * ``scout collect``  — run one sample. ``--tier auto`` (the cron path) lets the
+  * ``scout init-db``    — create/migrate the database.
+  * ``scout collect``    — run one sample. ``--tier auto`` (the cron path) lets the
     clock decide window vs baseline; ``window``/``baseline`` force it for backfill.
-  * ``scout rank``     — rank candidate categories from the collected samples.
-
-``steam-sync`` is reserved for when that module lands.
+  * ``scout rank``       — rank candidate categories from the collected samples.
+  * ``scout steam-sync`` — refresh the Steam library as a ranking candidate source.
 """
 
 from __future__ import annotations
@@ -25,6 +24,8 @@ from twitch_scout.collect.tiers import Tier
 from twitch_scout.config import Config, ConfigError
 from twitch_scout.rank.guards import GuardConfig
 from twitch_scout.rank.rank import RankConfig, RankResult, rank_candidates
+from twitch_scout.steam.client import SteamClient, SteamError
+from twitch_scout.steam.sync import sync_owned_games
 from twitch_scout.store.db import StoreError, connect, schema_version
 from twitch_scout.twitch.client import HelixClient, TwitchError
 
@@ -83,6 +84,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rank.set_defaults(func=cmd_rank)
 
+    steam_sync = sub.add_parser(
+        "steam-sync", help="refresh the Steam library as a ranking candidate source"
+    )
+    steam_sync.set_defaults(func=cmd_steam_sync)
+
     return parser
 
 
@@ -117,6 +123,29 @@ def cmd_collect(args: argparse.Namespace, config: Config) -> int:
         conn.close()
 
     _print_result(result)
+    return 0
+
+
+def cmd_steam_sync(args: argparse.Namespace, config: Config) -> int:
+    steam_creds = config.require_steam()  # ConfigError if unset
+    twitch_creds = config.require_twitch()  # name resolution needs Helix Get Games
+
+    conn = connect(config.db, auth_token=config.turso_auth_token)
+    try:
+        with (
+            SteamClient.create(steam_creds.api_key) as steam,
+            HelixClient.create(twitch_creds.client_id, twitch_creds.client_secret) as helix,
+        ):
+            result = sync_owned_games(
+                steam, helix, conn, SystemClock(), steam_id=steam_creds.steam_id
+            )
+    finally:
+        conn.close()
+
+    print(
+        f"synced {result.owned} owned games: {result.resolved} resolved to Twitch, "
+        f"{result.unresolved} unresolved ({result.written} rows written)"
+    )
     return 0
 
 
@@ -254,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
         config = Config.from_env()
         result: int = args.func(args, config)
         return result
-    except (ConfigError, StoreError, TwitchError) as exc:
+    except (ConfigError, StoreError, TwitchError, SteamError) as exc:
         # Expected operational failures: report cleanly, no traceback.
         logger.debug("command failed", exc_info=True)
         print(f"error: {exc}", file=sys.stderr)

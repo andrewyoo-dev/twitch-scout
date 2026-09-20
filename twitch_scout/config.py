@@ -33,12 +33,20 @@ class TwitchCredentials:
 
 
 @dataclass(frozen=True)
+class SteamCredentials:
+    api_key: str
+    steam_id: str  # a steamid64 or a vanity name; the client resolves either
+
+
+@dataclass(frozen=True)
 class Config:
     db: str
     collector: CollectorConfig
     client_id: str | None
     client_secret: str | None
     turso_auth_token: str | None
+    steam_api_key: str | None
+    steam_id: str | None
 
     def require_twitch(self) -> TwitchCredentials:
         if not self.client_id or not self.client_secret:
@@ -46,6 +54,11 @@ class Config:
                 "TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET must be set for this command"
             )
         return TwitchCredentials(self.client_id, self.client_secret)
+
+    def require_steam(self) -> SteamCredentials:
+        if not self.steam_api_key or not self.steam_id:
+            raise ConfigError("STEAM_API_KEY and STEAM_ID must be set for this command")
+        return SteamCredentials(self.steam_api_key, self.steam_id)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Config:
@@ -66,6 +79,8 @@ class Config:
             client_id=env.get("TWITCH_CLIENT_ID"),
             client_secret=env.get("TWITCH_CLIENT_SECRET"),
             turso_auth_token=env.get("TURSO_AUTH_TOKEN"),
+            steam_api_key=env.get("STEAM_API_KEY"),
+            steam_id=env.get("STEAM_ID"),
         )
 
 
