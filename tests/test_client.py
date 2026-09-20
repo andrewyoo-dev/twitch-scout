@@ -36,6 +36,7 @@ class TwitchMock:
         self.token_calls = 0
         self.token_status = 200
         self.games: list[tuple[list[dict[str, object]], str | None]] = [([], None)]
+        self.name_to_id: dict[str, str] = {}  # Get Games by name
         self.streams: dict[str, list[tuple[list[dict[str, object]], str | None]]] = {}
         self.status_queue: deque[int] = deque()
         self.retry_after = "2"
@@ -69,6 +70,10 @@ class TwitchMock:
         if request.url.path.endswith("/games/top"):
             data, nxt = self._page(self.games, request.url.params.get("after"))
             return httpx.Response(200, json=_envelope(data, nxt))
+        if request.url.path.endswith("/games"):
+            names = request.url.params.get_list("name")
+            data = [{"id": self.name_to_id[n], "name": n} for n in names if n in self.name_to_id]
+            return httpx.Response(200, json=_envelope(data, None))
         if request.url.path.endswith("/streams"):
             gid = request.url.params.get("game_id")
             assert gid is not None
@@ -169,6 +174,33 @@ def test_get_top_games_rejects_bad_limit() -> None:
     client, _ = _client(TwitchMock())
     with pytest.raises(ValueError, match="limit must be > 0"):
         client.get_top_games(0)
+
+
+# --- games by name ---
+
+
+def test_get_games_by_name_returns_only_matches() -> None:
+    mock = TwitchMock()
+    mock.name_to_id = {"Cozy Cove": "111", "Job Simulator": "222"}
+    client, _ = _client(mock)
+    games = client.get_games_by_name(["Cozy Cove", "Job Simulator", "Nonexistent Game"])
+    resolved = {g.name: g.id for g in games}
+    assert resolved == {"Cozy Cove": "111", "Job Simulator": "222"}
+
+
+def test_get_games_by_name_empty_input_makes_no_request() -> None:
+    mock = TwitchMock()
+    client, _ = _client(mock)
+    assert client.get_games_by_name([]) == []
+    assert mock.token_calls == 0  # never hit the network
+
+
+def test_get_games_by_name_dedupes() -> None:
+    mock = TwitchMock()
+    mock.name_to_id = {"Cozy Cove": "111"}
+    client, _ = _client(mock)
+    games = client.get_games_by_name(["Cozy Cove", "Cozy Cove", ""])
+    assert [g.id for g in games] == ["111"]
 
 
 # --- streams ---

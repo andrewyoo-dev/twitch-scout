@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -40,7 +40,11 @@ logger = logging.getLogger(__name__)
 TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 API_BASE = "https://api.twitch.tv/helix"
 TOP_GAMES_URL = f"{API_BASE}/games/top"
+GAMES_URL = f"{API_BASE}/games"
 STREAMS_URL = f"{API_BASE}/streams"
+
+# Helix accepts up to 100 `name` params per Get Games request (coding standard 1).
+_GAMES_NAME_BATCH = 100
 
 PAGE_SIZE = 100  # Helix maximum items per page
 _DEFAULT_TIMEOUT_S = 10.0
@@ -165,6 +169,22 @@ class HelixClient:
                 break
         return games[:limit]
 
+    def get_games_by_name(self, names: list[str]) -> list[HelixGame]:
+        """Resolve category names to Twitch games via Get Games (exact name match).
+
+        Names are deduped and queried in batches of 100 (the Helix per-request cap).
+        Only names that match a Twitch category come back, so the result is usually
+        smaller than the input; the caller maps results back by name. Bounded by the
+        number of batches the input implies, so it cannot loop."""
+        unique = list(dict.fromkeys(n for n in names if n))
+        games: list[HelixGame] = []
+        for start in range(0, len(unique), _GAMES_NAME_BATCH):
+            chunk = unique[start : start + _GAMES_NAME_BATCH]
+            envelope = self._get_page(GAMES_URL, {"name": chunk})
+            parsed, _skipped = parse_games(envelope.data)
+            games.extend(parsed)
+        return games
+
     def get_streams(self, game_id: str, *, max_pages: int) -> StreamsResult:
         """Live streams for one game, paginated up to ``max_pages`` (each up to 100
         streams, viewer-count descending). If more pages remain past the cap the
@@ -199,11 +219,11 @@ class HelixClient:
             params["after"] = cursor
         return params
 
-    def _get_page(self, url: str, params: dict[str, str | int]) -> HelixEnvelope:
+    def _get_page(self, url: str, params: Mapping[str, str | int | list[str]]) -> HelixEnvelope:
         payload = self._get(url, params)
         return HelixEnvelope.model_validate(payload)
 
-    def _get(self, url: str, params: dict[str, str | int]) -> object:
+    def _get(self, url: str, params: Mapping[str, str | int | list[str]]) -> object:
         # Bounded retry loop: initial attempt plus max_retries (standard 1).
         for _ in range(self._max_retries + 1):
             self._ensure_token()
