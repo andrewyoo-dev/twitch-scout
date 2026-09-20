@@ -190,6 +190,59 @@ def test_tier_override_forces_window_on_an_off_day(conn: sqlite3.Connection) -> 
     assert stored == {"window"}
 
 
+# --- Steam candidate sampling (window tier only) ---
+
+
+def _client_with_owned() -> FakeClient:
+    games = [HelixGame(id="1", name="Top Game")]
+    streams = {
+        "1": _streams([100], game_id="1"),
+        "9": _streams([40, 10], game_id="9"),  # an owned game absent from top-N
+    }
+    return FakeClient(games, streams)
+
+
+def _owned() -> list[HelixGame]:
+    return [HelixGame(id="9", name="Owned Game")]
+
+
+def test_window_tier_samples_steam_candidates(conn: sqlite3.Connection) -> None:
+    client = _client_with_owned()
+    result = Collector(client, conn, WINDOW_CLOCK, steam_candidates=_owned).run()
+
+    assert result.candidates_added == 1
+    assert (result.games_seen, result.games_written) == (2, 2)
+    assert "9" in client.stream_calls
+    rows = {r.game_id for r in read_batch(conn, result.slot.ts)}
+    assert rows == {"1", "9"}  # the owned game is now in the sample
+
+
+def test_baseline_tier_does_not_sample_steam_candidates(conn: sqlite3.Connection) -> None:
+    called = False
+
+    def candidates() -> list[HelixGame]:
+        nonlocal called
+        called = True
+        return _owned()
+
+    client = _client_with_owned()
+    result = Collector(client, conn, BASELINE_CLOCK, steam_candidates=candidates).run()
+
+    assert result.candidates_added == 0
+    assert called is False  # the store is not even read on a baseline slot
+    assert "9" not in client.stream_calls
+
+
+def test_steam_candidate_already_in_top_n_is_not_double_sampled(conn: sqlite3.Connection) -> None:
+    client = _client_with_owned()  # top-N has game "1"
+    result = Collector(
+        client, conn, WINDOW_CLOCK, steam_candidates=lambda: [HelixGame(id="1", name="Top Game")]
+    ).run()
+
+    assert result.candidates_added == 0
+    assert client.stream_calls.count("1") == 1  # sampled once, not twice
+
+
 def test_slot_ts_is_the_batch_key(conn: sqlite3.Connection) -> None:
     # The written batch really lands on the resolved slot timestamp.
     result = Collector(_three_game_client(), conn, BASELINE_CLOCK).run()

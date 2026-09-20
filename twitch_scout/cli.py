@@ -25,7 +25,7 @@ from twitch_scout.config import Config, ConfigError
 from twitch_scout.rank.guards import GuardConfig
 from twitch_scout.rank.rank import RankConfig, RankResult, rank_candidates
 from twitch_scout.steam.client import SteamClient, SteamError
-from twitch_scout.steam.sync import sync_owned_games
+from twitch_scout.steam.sync import load_candidates, sync_owned_games
 from twitch_scout.store.db import StoreError, connect, schema_version
 from twitch_scout.twitch.client import HelixClient, TwitchError
 
@@ -117,7 +117,14 @@ def cmd_collect(args: argparse.Namespace, config: Config) -> int:
     conn = connect(config.db, auth_token=config.turso_auth_token)
     try:
         with HelixClient.create(creds.client_id, creds.client_secret) as client:
-            collector = Collector(client, conn, SystemClock(), config=collector_config)
+            collector = Collector(
+                client,
+                conn,
+                SystemClock(),
+                config=collector_config,
+                # Sampled only on a window slot; the store read is deferred until then.
+                steam_candidates=lambda: load_candidates(conn),
+            )
             result = collector.run(force=args.force, tier=tier)
     finally:
         conn.close()
@@ -247,10 +254,11 @@ def _print_result(result: CollectResult) -> None:
     if result.skipped:
         print(f"slot {ts} ({result.slot.tier}) already sampled; skipped")
         return
+    extra = f" (+{result.candidates_added} Steam)" if result.candidates_added else ""
     print(
         f"sampled {result.slot.tier} slot {ts}: "
         f"{result.games_written} written, {result.games_failed} failed "
-        f"of {result.games_seen} games"
+        f"of {result.games_seen} games{extra}"
     )
 
 
