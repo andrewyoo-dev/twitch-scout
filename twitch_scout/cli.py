@@ -73,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help="how hard to down-rank single-giant categories: 0 = raw viewers, "
-        "1 = channel count only, 0.5 = geometric mean (default)",
+        "1 = channel count only, 0.5 = geometric mean (default: 0.75)",
     )
     rank.add_argument("--limit", type=int, default=25, help="rows to show")
     rank.add_argument("--hide-falling", action="store_true", help="drop cooling categories")
@@ -115,27 +115,7 @@ def cmd_collect(args: argparse.Namespace, config: Config) -> int:
 
 
 def cmd_rank(args: argparse.Namespace, config: Config) -> int:
-    defaults = GuardConfig()
-    guards = GuardConfig(
-        min_viewer_floor=args.floor if args.floor is not None else defaults.min_viewer_floor,
-        min_avg_channels=(
-            args.min_channels if args.min_channels is not None else defaults.min_avg_channels
-        ),
-        max_avg_channels=(
-            args.max_channels if args.max_channels is not None else defaults.max_avg_channels
-        ),
-    )
-    rank_defaults = RankConfig()
-    rank_config = RankConfig(
-        eval_days=args.days,
-        hide_falling=args.hide_falling,
-        concentration_penalty=(
-            args.concentration_penalty
-            if args.concentration_penalty is not None
-            else rank_defaults.concentration_penalty
-        ),
-        guards=guards,
-    )
+    rank_config = _rank_config_from_args(args)
 
     conn = connect(config.db, auth_token=config.turso_auth_token)
     try:
@@ -145,6 +125,45 @@ def cmd_rank(args: argparse.Namespace, config: Config) -> int:
 
     _print_ranking(result, limit=args.limit, show_rejected=args.show_rejected)
     return 0
+
+
+def _rank_config_from_args(args: argparse.Namespace) -> RankConfig:
+    """Build the rank config, turning out-of-range values into a clean ConfigError.
+
+    The dataclasses validate their thresholds in __post_init__; without this a bad
+    CLI value (e.g. --concentration-penalty 2, or --max-channels below --min-channels)
+    would surface as an uncaught ValueError traceback instead of "error: ...".
+    """
+    guard_defaults = GuardConfig()
+    rank_defaults = RankConfig()
+    try:
+        guards = GuardConfig(
+            min_viewer_floor=(
+                args.floor if args.floor is not None else guard_defaults.min_viewer_floor
+            ),
+            min_avg_channels=(
+                args.min_channels
+                if args.min_channels is not None
+                else guard_defaults.min_avg_channels
+            ),
+            max_avg_channels=(
+                args.max_channels
+                if args.max_channels is not None
+                else guard_defaults.max_avg_channels
+            ),
+        )
+        return RankConfig(
+            eval_days=args.days,
+            hide_falling=args.hide_falling,
+            concentration_penalty=(
+                args.concentration_penalty
+                if args.concentration_penalty is not None
+                else rank_defaults.concentration_penalty
+            ),
+            guards=guards,
+        )
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
 
 
 def _print_ranking(result: RankResult, *, limit: int, show_rejected: bool) -> None:

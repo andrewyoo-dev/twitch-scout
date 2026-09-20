@@ -121,6 +121,29 @@ def test_score_prefers_spread_over_single_giant(conn: sqlite3.Connection) -> Non
     assert by_id["giant"].ratio > by_id["spread"].ratio
 
 
+def test_default_penalty_flips_concentrated_below_spread(conn: sqlite3.Connection) -> None:
+    # A concentrated category (8000 viewers over 5 channels) and a spread one (1000
+    # over 20). These are chosen so the winner flips between c=0.5 and the shipped
+    # default 0.75: at 0.5 the concentrated giant scores higher, at 0.75 the spread
+    # field does. This pins the actual default, not merely "any c > 0".
+    _seed(conn, "giant", "Casino Night", _recent(8000, 5) + _older(8000, 5))
+    _seed(conn, "field", "Cozy Cove", _recent(1000, 20) + _older(1000, 20))
+
+    at_050 = [
+        c.game_id
+        for c in rank_candidates(conn, CLOCK, RankConfig(concentration_penalty=0.5)).candidates
+    ]
+    assert at_050.index("giant") < at_050.index("field")  # concentrated wins at 0.5
+
+    at_default = [c.game_id for c in rank_candidates(conn, CLOCK, RankConfig()).candidates]  # 0.75
+    assert at_default.index("field") < at_default.index("giant")  # spread wins at the default
+
+
+def test_rank_config_rejects_nonpositive_days() -> None:
+    with pytest.raises(ValueError, match="eval_days"):
+        RankConfig(eval_days=0)
+
+
 def test_concentration_penalty_zero_falls_back_to_viewers(conn: sqlite3.Connection) -> None:
     # penalty=0 => score is raw viewers, so the single-giant category (same viewers,
     # fewer channels) is no longer down-ranked below the spread one.

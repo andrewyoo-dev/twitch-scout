@@ -13,6 +13,7 @@ ranked; the rejected set is returned too, with reasons, so the filter is inspect
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from twitch_scout.clock import Clock
@@ -42,10 +43,14 @@ class RankConfig:
     guards: GuardConfig = field(default_factory=GuardConfig)
 
     def __post_init__(self) -> None:
-        # Validate at the boundary: a nonsensical exponent is a bug, not something
-        # to debug later as a mysteriously reordered list.
+        # Validate at the boundary: a nonsensical config is a bug, not something to
+        # debug later as an empty list or a traceback from deep in the query layer.
         if not 0.0 <= self.concentration_penalty <= 1.0:
             raise ValueError("concentration_penalty must be between 0 and 1")
+        if self.eval_days <= 0:
+            raise ValueError("eval_days must be > 0")
+        if self.trend_window_days <= 0:
+            raise ValueError("trend_window_days must be > 0")
 
 
 @dataclass(frozen=True)
@@ -104,9 +109,7 @@ def _to_stats(agg: GameAggregate) -> CandidateStats:
 
 def _to_candidate(agg: GameAggregate, viewers: list[int], config: RankConfig) -> Candidate:
     ratio = agg.avg_viewers / agg.avg_channels if agg.avg_channels else 0.0
-    score = _discoverability_score(
-        agg.avg_viewers, agg.avg_channels, config.concentration_penalty
-    )
+    score = _discoverability_score(agg.avg_viewers, agg.avg_channels, config.concentration_penalty)
     trend = classify_trend(agg.avg_viewers_recent, agg.avg_viewers, config.trend_eps)
     floor = int(percentile(viewers, config.floor_percentile)) if viewers else 0
     spiking = is_spike(viewers[-1], median(viewers), config.spike_factor) if viewers else False
@@ -132,4 +135,5 @@ def _discoverability_score(viewers: float, channels: float, penalty: float) -> f
     """
     if viewers <= 0.0 or channels <= 0.0:
         return 0.0
-    return viewers ** (1.0 - penalty) * channels**penalty
+    # math.pow keeps the result statically float (the ** operator infers Any here).
+    return math.pow(viewers, 1.0 - penalty) * math.pow(channels, penalty)

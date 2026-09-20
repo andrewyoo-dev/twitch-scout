@@ -89,6 +89,36 @@ def test_collect_without_credentials_exits_one(
     assert "error:" in capsys.readouterr().err
 
 
+def test_rank_bad_concentration_penalty_exits_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db = tmp_path / "scout.db"
+    monkeypatch.setenv("SCOUT_DB", str(db))
+    main(["init-db"])
+    capsys.readouterr()
+
+    code = main(["rank", "--concentration-penalty", "2"])
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "concentration_penalty" in err
+
+
+def test_rank_max_channels_below_min_exits_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db = tmp_path / "scout.db"
+    monkeypatch.setenv("SCOUT_DB", str(db))
+    main(["init-db"])
+    capsys.readouterr()
+
+    code = main(["rank", "--max-channels", "2"])
+
+    assert code == 1
+    assert "error:" in capsys.readouterr().err
+
+
 def test_bad_env_exits_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
