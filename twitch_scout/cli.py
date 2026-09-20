@@ -17,8 +17,9 @@ import contextlib
 import logging
 import sys
 from dataclasses import replace
+from datetime import timedelta
 
-from twitch_scout.clock import SystemClock
+from twitch_scout.clock import Clock, SystemClock
 from twitch_scout.collect.collector import Collector, CollectResult
 from twitch_scout.collect.tiers import Tier
 from twitch_scout.config import Config, ConfigError
@@ -125,10 +126,12 @@ def cmd_rank(args: argparse.Namespace, config: Config) -> int:
         # results silently ([:0] shows nothing, [:-3] drops the tail) with exit 0.
         raise ConfigError("--limit must be >= 1")
     rank_config = _rank_config_from_args(args)
+    clock = SystemClock()
+    _validate_eval_window(rank_config, clock)
 
     conn = connect(config.db, auth_token=config.turso_auth_token)
     try:
-        result = rank_candidates(conn, SystemClock(), rank_config)
+        result = rank_candidates(conn, clock, rank_config)
     finally:
         conn.close()
 
@@ -173,6 +176,14 @@ def _rank_config_from_args(args: argparse.Namespace) -> RankConfig:
         )
     except ValueError as exc:
         raise ConfigError(str(exc)) from exc
+
+
+def _validate_eval_window(config: RankConfig, clock: Clock) -> None:
+    """Reject a day window that falls outside datetime's representable range."""
+    try:
+        clock.now() - timedelta(days=config.eval_days)
+    except OverflowError as exc:
+        raise ConfigError("eval_days is too large for the current date") from exc
 
 
 def _print_ranking(result: RankResult, *, limit: int, show_rejected: bool) -> None:

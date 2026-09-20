@@ -172,6 +172,19 @@ def test_rank_nan_float_exits_cleanly(
     assert "finite" in err
 
 
+def test_rank_excessive_days_exits_cleanly(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("SCOUT_DB", ":memory:")
+
+    code = main(["rank", "--days", "999999999"])
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "eval_days" in err
+
+
 def test_bad_env_exits_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
