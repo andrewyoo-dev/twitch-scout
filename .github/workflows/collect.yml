@@ -1,23 +1,12 @@
 name: collect
 
-# Sampling tiers are decided in Python from a Pacific-time clock (see
-# twitch_scout/collect/tiers.py), so these crons only need to fire often enough to
-# cover the possibilities; the collector picks window vs baseline and skips slots it
-# has already sampled. Times are UTC.
-#
-# GitHub drops/delays scheduled runs under load, and the top of the hour (:00) is the
-# most congested slot, so both crons are offset off :00 and kept modest — 10-minute
-# window sampling was finer than needed (handoff open questions). The idempotent slot
-# design absorbs whatever GitHub skips.
-#
-#   - hourly baseline at :23
-#   - every 20 min (offset) during the UTC hours that can hold a 18:30-22:30 PT
-#     window on a Tue/Thu/Sat. PT evening lands on Wed/Fri/Sun in UTC (dow 3,5,0);
-#     PDT is 01:30-05:30 UTC and PST is 02:30-06:30 UTC, so hours 1-6 cover both.
+# Runs one collection sample. Triggered externally every ~15 min via
+# workflow_dispatch (a cron-job.org job calling the GitHub API). GitHub's own
+# `schedule` events are best-effort and were dropping the decision-grade window
+# samples, so scheduling lives outside GitHub. The collector decides window vs
+# baseline from a Pacific-time clock and skips already-sampled slots, so a fixed
+# trigger cadence is safe and cheap. See HANDOFF_COLLECTION_RELIABILITY.md.
 on:
-  schedule:
-    - cron: "23 * * * *"
-    - cron: "7,27,47 1-6 * * 3,5,0"
   workflow_dispatch: {}
 
 # Never let two samples run at once; queue the next instead of overlapping writes.
@@ -43,9 +32,9 @@ jobs:
         env:
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
-          # SCOUT_DB must be the Turso libSQL URL once store/db.py grows Turso
-          # support. Until it is set, scheduled runs are green no-ops rather than
-          # writing to an ephemeral runner disk that is thrown away.
+          # SCOUT_DB is the Turso libSQL URL (repo secret). The guard below keeps a
+          # run a green no-op if the secret is somehow unset, rather than writing to
+          # the runner's ephemeral disk.
           SCOUT_DB: ${{ secrets.SCOUT_DB }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
