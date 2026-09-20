@@ -73,7 +73,7 @@ def test_init_db_creates_database(
 
     assert code == 0
     assert db.exists()
-    assert "schema v1" in capsys.readouterr().out
+    assert "schema v2" in capsys.readouterr().out
 
 
 def test_collect_without_credentials_exits_one(

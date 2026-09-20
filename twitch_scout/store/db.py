@@ -85,6 +85,24 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
         )
         """,
     ),
+    (
+        # Steam library as a candidate SOURCE: owned (later watchlist/wishlist) games,
+        # each resolved to a Twitch category id when a match exists. The collector
+        # samples the resolved rows alongside top-N during the window tier; rank joins
+        # on twitch_game_id to surface owned games in their own section.
+        """
+        CREATE TABLE IF NOT EXISTS steam_games (
+            appid            INTEGER PRIMARY KEY,   -- Steam AppID
+            name             TEXT    NOT NULL,      -- Steam's name for the game
+            playtime_minutes INTEGER NOT NULL DEFAULT 0,
+            twitch_game_id   TEXT,                  -- resolved Twitch category id (NULL if none)
+            twitch_game_name TEXT,                  -- Twitch's canonical name (display / dedupe)
+            source           TEXT    NOT NULL DEFAULT 'owned',  -- owned | watchlist | wishlist
+            synced_at        TEXT    NOT NULL       -- ISO8601 UTC of the last steam-sync
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_steam_twitch_game ON steam_games (twitch_game_id)",
+    ),
 )
 
 SCHEMA_VERSION = len(MIGRATIONS)

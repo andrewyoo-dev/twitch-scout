@@ -58,7 +58,7 @@ def _rows() -> list[Snapshot]:
 
 
 def test_connect_sets_schema_version(conn: sqlite3.Connection) -> None:
-    assert schema_version(conn) == SCHEMA_VERSION == 1
+    assert schema_version(conn) == SCHEMA_VERSION == 2
 
 
 def test_migrations_are_idempotent_across_reconnects(tmp_path: Path) -> None:
