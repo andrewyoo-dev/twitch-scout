@@ -22,6 +22,7 @@ works identically on both backends.
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -132,7 +133,15 @@ def connect(database: str | Path, *, auth_token: str | None = None) -> Connectio
         if isinstance(database, str) and is_turso_url(database)
         else _connect_sqlite(database)
     )
-    _migrate(conn)
+    try:
+        _migrate(conn)
+    except BaseException:
+        # Migration failed after the handle was opened; close it so we don't leak the
+        # connection (and, for the local sqlite backend, the file lock it holds — which
+        # otherwise blocks the caller from deleting or reopening the database).
+        with contextlib.suppress(Exception):
+            conn.close()
+        raise
     return conn
 
 

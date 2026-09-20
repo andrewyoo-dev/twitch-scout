@@ -102,6 +102,63 @@ def test_schema_newer_than_code_is_refused(tmp_path: Path) -> None:
         connect(db)
 
 
+class _TrackingConn:
+    """Wraps a real connection and records close(), to prove connect() cleans up."""
+
+    def __init__(self, inner: sqlite3.Connection) -> None:
+        self._inner = inner
+        self.closed = False
+
+    def execute(self, sql: str, parameters: object = (), /) -> object:
+        return self._inner.execute(sql, parameters)  # type: ignore[arg-type]
+
+    def executemany(self, sql: str, parameters: object, /) -> object:
+        return self._inner.executemany(sql, parameters)  # type: ignore[arg-type]
+
+    def commit(self) -> None:
+        self._inner.commit()
+
+    def rollback(self) -> None:
+        self._inner.rollback()
+
+    def close(self) -> None:
+        self.closed = True
+        self._inner.close()
+
+
+def test_connect_closes_connection_when_migration_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A leaked connection here holds the sqlite file lock, which on Windows blocks the
+    # tmp_path cleanup of every test that hits this path. Prove the handle is closed.
+    from twitch_scout.store import db as db_module
+
+    path = tmp_path / "scout.db"
+    connect(path).close()
+    raw = sqlite3.connect(path)
+    raw.execute(
+        "UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(SCHEMA_VERSION + 1),)
+    )
+    raw.commit()
+    raw.close()
+
+    created: list[_TrackingConn] = []
+    real_connect_sqlite = db_module._connect_sqlite
+
+    def tracking_factory(database: str | Path) -> _TrackingConn:
+        conn = _TrackingConn(real_connect_sqlite(database))  # type: ignore[arg-type]
+        created.append(conn)
+        return conn
+
+    monkeypatch.setattr(db_module, "_connect_sqlite", tracking_factory)
+
+    with pytest.raises(RuntimeError, match="newer than this code"):
+        connect(path)
+
+    assert len(created) == 1
+    assert created[0].closed is True
+
+
 # --- backend dispatch ---
 
 
