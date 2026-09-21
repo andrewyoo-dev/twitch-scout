@@ -75,29 +75,34 @@ def test_resolve_unmatched_vanity_raises() -> None:
 
 def test_get_owned_games_parses_playtime() -> None:
     client = _client(SteamMock())
-    games = client.get_owned_games("76561190000000000")
-    assert games == [
+    library = client.get_owned_games("76561190000000000")
+    assert library.games == [
         OwnedSteamGame(appid=1, name="Cozy Cove", playtime_minutes=600),
         OwnedSteamGame(appid=2, name="Job Simulator", playtime_minutes=30),
     ]
+    assert library.complete is True  # nothing dropped, count matches
+    assert library.skipped == 0
 
 
-def test_get_owned_games_skips_malformed_items() -> None:
+def test_get_owned_games_skips_malformed_items_and_flags_incomplete() -> None:
     mock = SteamMock()
     mock.owned = [
         {"appid": 1, "name": "Cozy Cove", "playtime_forever": 600},
         {"appid": 2, "playtime_forever": 30},  # no name (missing include_appinfo)
     ]
     client = _client(mock)
-    games = client.get_owned_games("76561190000000000")
-    assert [g.appid for g in games] == [1]
+    library = client.get_owned_games("76561190000000000")
+    assert [g.appid for g in library.games] == [1]
+    # A dropped item means the library is not authoritative for pruning.
+    assert library.skipped == 1
+    assert library.complete is False
 
 
 def test_get_owned_games_private_profile_is_empty() -> None:
     mock = SteamMock()
     mock.owned = None
     client = _client(mock)
-    assert client.get_owned_games("76561190000000000") == []
+    assert client.get_owned_games("76561190000000000").games == []
 
 
 def test_auth_error_on_forbidden() -> None:

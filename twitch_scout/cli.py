@@ -161,6 +161,11 @@ def cmd_steam_sync(args: argparse.Namespace, config: Config) -> int:
         f"synced {result.owned} owned games: {result.resolved} resolved to Twitch, "
         f"{result.unresolved} unresolved ({result.written} rows written)"
     )
+    if not result.complete:
+        print(
+            f"warning: incomplete Steam response ({result.skipped} item(s) dropped); "
+            "kept the existing library and skipped pruning removed games"
+        )
     return 0
 
 

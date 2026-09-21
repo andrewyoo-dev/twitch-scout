@@ -98,15 +98,23 @@ def upsert_steam_games(conn: Connection, games: list[SteamGame], synced_at: date
     return len(params)
 
 
-def replace_owned_games(conn: Connection, games: list[SteamGame], synced_at: datetime) -> int:
-    """Upsert the owned library and drop owned rows no longer present, atomically.
+def replace_owned_games(
+    conn: Connection, games: list[SteamGame], synced_at: datetime, *, prune: bool = True
+) -> int:
+    """Upsert the owned library and (when ``prune``) drop owned rows no longer present.
 
-    steam-sync fetches the full owned library, so the fetched set is authoritative:
-    a game removed from Steam (uninstalled, refunded, delisted) must stop being a
-    candidate. Pruning is scoped to source='owned' so other sources are untouched.
+    steam-sync fetches the full owned library, so on a complete fetch the set is
+    authoritative: a game removed from Steam (uninstalled, refunded, delisted) must
+    stop being a candidate. Pruning is scoped to source='owned' so other sources are
+    untouched, and runs in the same transaction as the upsert.
 
-    An empty ``games`` is a no-op that returns 0: a transient empty/private response
-    must never wipe the stored library. Returns the number of rows upserted.
+    ``prune=False`` upserts the valid rows but deletes nothing: on an incomplete fetch
+    (a malformed item was dropped, or fewer entries than ``game_count``) a game absent
+    from this response may be missing only because its item was malformed, not because
+    it was unowned, so deleting it would lose a still-owned game.
+
+    An empty ``games`` is a no-op that returns 0, so a transient empty/private response
+    never wipes the stored library. Returns the number of rows upserted.
     """
     if not games:
         return 0
@@ -127,10 +135,11 @@ def replace_owned_games(conn: Connection, games: list[SteamGame], synced_at: dat
     placeholders = ",".join("?" for _ in keep)
     with transaction(conn):
         conn.executemany(_UPSERT, params)
-        conn.execute(
-            f"DELETE FROM steam_games WHERE source = 'owned' AND appid NOT IN ({placeholders})",
-            keep,
-        )
+        if prune:
+            conn.execute(
+                f"DELETE FROM steam_games WHERE source = 'owned' AND appid NOT IN ({placeholders})",
+                keep,
+            )
     return len(params)
 
 

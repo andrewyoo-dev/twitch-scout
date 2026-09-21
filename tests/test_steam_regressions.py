@@ -18,7 +18,7 @@ import pytest
 from twitch_scout import cli
 from twitch_scout.clock import FrozenClock, SystemClock
 from twitch_scout.collect.tiers import Tier
-from twitch_scout.steam.client import OwnedSteamGame, SteamClient
+from twitch_scout.steam.client import OwnedLibrary, OwnedSteamGame, SteamClient
 from twitch_scout.steam.sync import SupportsGameLookup, SupportsOwnedGames, sync_owned_games
 from twitch_scout.store.db import connect
 from twitch_scout.store.snapshots import Snapshot, write_batch
@@ -47,8 +47,12 @@ def test_refresh_removes_games_no_longer_owned() -> None:
     steam = Mock(spec=SupportsOwnedGames)
     steam.resolve_steam_id.return_value = "76561190000000000"
     steam.get_owned_games.side_effect = [
-        [OwnedSteamGame(1, "Removed Game", 60), OwnedSteamGame(2, "Kept Game", 90)],
-        [OwnedSteamGame(2, "Kept Game", 100)],
+        OwnedLibrary(
+            [OwnedSteamGame(1, "Removed Game", 60), OwnedSteamGame(2, "Kept Game", 90)],
+            skipped=0,
+            complete=True,
+        ),
+        OwnedLibrary([OwnedSteamGame(2, "Kept Game", 100)], skipped=0, complete=True),
     ]
     lookup = Mock(spec=SupportsGameLookup)
     lookup.get_games_by_name.side_effect = [
@@ -91,6 +95,48 @@ def test_malformed_steam_response_exits_cleanly(
 
 def test_sub_one_channel_ceiling_does_not_abort_rank() -> None:
     assert cli.main(["rank", "--min-channels", "0", "--max-channels", "0.5"]) == 0
+
+
+def test_partial_validation_does_not_delete_a_still_owned_game() -> None:
+    # R5: a 200 response with a valid game and a malformed one (dropped by the parser)
+    # must not prune the dropped game, which is still owned. Its item was just bad.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "response": {
+                    "game_count": 2,
+                    "games": [
+                        {"appid": 1, "name": "Game 1", "playtime_forever": 70},
+                        {"appid": 2, "playtime_forever": 60},  # no name -> dropped
+                    ],
+                }
+            },
+        )
+
+    lookup = Mock(spec=SupportsGameLookup)
+    lookup.get_games_by_name.return_value = [HelixGame(id="1", name="Game 1")]
+    conn = connect(":memory:")
+    try:
+        upsert_steam_games(
+            conn,
+            [SteamGame(i, f"Game {i}", 60, str(i), f"Game {i}") for i in (1, 2)],
+            datetime(2026, 9, 21, tzinfo=UTC),
+        )
+        client = SteamClient(
+            "review-placeholder", http=httpx.Client(transport=httpx.MockTransport(handler))
+        )
+        result = sync_owned_games(
+            client,
+            lookup,
+            conn,
+            FrozenClock(datetime(2026, 9, 21, tzinfo=UTC)),
+            steam_id="76561190000000000",  # 17 digits: skips vanity resolution
+        )
+        assert result.complete is False
+        assert {game.twitch_game_id for game in fetch_owned(conn)} == {"1", "2"}  # 2 preserved
+    finally:
+        conn.close()
 
 
 def test_rank_limit_bounds_owned_output(

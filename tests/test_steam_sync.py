@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 import pytest
 
 from twitch_scout.clock import FrozenClock
-from twitch_scout.steam.client import OwnedSteamGame
+from twitch_scout.steam.client import OwnedLibrary, OwnedSteamGame
 from twitch_scout.steam.sync import load_candidates, sync_owned_games
 from twitch_scout.store.db import connect
 from twitch_scout.store.steam import fetch_owned
@@ -28,18 +28,26 @@ def conn() -> Iterator[sqlite3.Connection]:
 
 
 class FakeSteam:
-    def __init__(self, games: list[OwnedSteamGame], *, steamid: str = "76561190000000000") -> None:
+    def __init__(
+        self,
+        games: list[OwnedSteamGame],
+        *,
+        steamid: str = "76561190000000000",
+        complete: bool = True,
+    ) -> None:
         self._games = games
         self._steamid = steamid
+        self._complete = complete
         self.resolved_with: str | None = None
 
     def resolve_steam_id(self, id_or_vanity: str) -> str:
         self.resolved_with = id_or_vanity
         return self._steamid
 
-    def get_owned_games(self, steam_id: str) -> list[OwnedSteamGame]:
+    def get_owned_games(self, steam_id: str) -> OwnedLibrary:
         assert steam_id == self._steamid
-        return self._games
+        skipped = 0 if self._complete else 1
+        return OwnedLibrary(games=self._games, skipped=skipped, complete=self._complete)
 
 
 class FakeLookup:
@@ -122,6 +130,23 @@ def test_sync_prunes_games_no_longer_owned(conn: sqlite3.Connection) -> None:
     second = FakeSteam([OwnedSteamGame(1, "Cozy Cove", 700)])
     sync_owned_games(second, lookup, conn, CLOCK, steam_id="id")
     assert [o.twitch_game_id for o in fetch_owned(conn)] == ["t1"]
+
+
+def test_incomplete_fetch_does_not_prune_absent_games(conn: sqlite3.Connection) -> None:
+    # An incomplete fetch (a malformed item was dropped) must not delete a game absent
+    # from this response: it may be missing only because its item was malformed (R5).
+    lookup = FakeLookup({"Cozy Cove": "t1", "Old Game": "t2"})
+    sync_owned_games(
+        FakeSteam([OwnedSteamGame(1, "Cozy Cove", 600), OwnedSteamGame(2, "Old Game", 30)]),
+        lookup,
+        conn,
+        CLOCK,
+        steam_id="id",
+    )
+    partial = FakeSteam([OwnedSteamGame(1, "Cozy Cove", 700)], complete=False)
+    result = sync_owned_games(partial, lookup, conn, CLOCK, steam_id="id")
+    assert result.complete is False
+    assert {o.twitch_game_id for o in fetch_owned(conn)} == {"t1", "t2"}  # t2 preserved
 
 
 def test_sync_does_not_wipe_library_on_empty_fetch(conn: sqlite3.Connection) -> None:

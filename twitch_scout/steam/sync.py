@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from twitch_scout.clock import Clock
-from twitch_scout.steam.client import OwnedSteamGame
+from twitch_scout.steam.client import OwnedLibrary, OwnedSteamGame
 from twitch_scout.store.db import Connection
 from twitch_scout.store.steam import SteamGame, fetch_candidates, replace_owned_games
 from twitch_scout.twitch.models import HelixGame
@@ -30,7 +30,7 @@ _OWNED = "owned"
 class SupportsOwnedGames(Protocol):
     def resolve_steam_id(self, id_or_vanity: str) -> str: ...
 
-    def get_owned_games(self, steam_id: str) -> list[OwnedSteamGame]: ...
+    def get_owned_games(self, steam_id: str) -> OwnedLibrary: ...
 
 
 class SupportsGameLookup(Protocol):
@@ -43,6 +43,8 @@ class SyncResult:
     resolved: int  # games matched to a Twitch category
     unresolved: int  # games with no Twitch match (stored, but not sampled)
     written: int  # rows upserted
+    complete: bool = True  # False if the fetch was partial (pruning was skipped)
+    skipped: int = 0  # malformed items the Steam response dropped
 
 
 def sync_owned_games(
@@ -55,7 +57,8 @@ def sync_owned_games(
 ) -> SyncResult:
     """Fetch the owned library, resolve names to Twitch ids, and upsert it."""
     resolved_id = steam.resolve_steam_id(steam_id)
-    games = steam.get_owned_games(resolved_id)
+    library = steam.get_owned_games(resolved_id)
+    games = library.games
     resolution = _resolve_to_twitch(games, lookup)
 
     rows: list[SteamGame] = []
@@ -72,13 +75,17 @@ def sync_owned_games(
             )
         )
 
-    # Replace (not just upsert) so games no longer owned stop being candidates.
-    written = replace_owned_games(conn, rows, clock.now())
+    # Replace (not just upsert) so games no longer owned stop being candidates, but
+    # only prune on a complete fetch: pruning from a partial response would delete a
+    # still-owned game whose item was merely dropped as malformed.
+    written = replace_owned_games(conn, rows, clock.now(), prune=library.complete)
     return SyncResult(
         owned=len(games),
         resolved=len(resolution),
         unresolved=len(games) - len(resolution),
         written=written,
+        complete=library.complete,
+        skipped=library.skipped,
     )
 
 

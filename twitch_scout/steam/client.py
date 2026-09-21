@@ -61,6 +61,21 @@ class OwnedSteamGame:
     playtime_minutes: int
 
 
+@dataclass(frozen=True)
+class OwnedLibrary:
+    """The owned games plus whether the response was complete enough to prune from.
+
+    ``complete`` is False when any item was dropped as malformed, or the response
+    returned fewer entries than its own ``game_count``. A caller must not treat an
+    incomplete library as authoritative for deletion: a game missing only because its
+    item was malformed is still owned.
+    """
+
+    games: list[OwnedSteamGame]
+    skipped: int
+    complete: bool
+
+
 class SteamClient:
     def __init__(self, api_key: str, *, http: httpx.Client) -> None:
         if not api_key:
@@ -100,11 +115,14 @@ class SteamClient:
             raise SteamApiError(f"could not resolve Steam vanity name {candidate!r}")
         return parsed.response.steamid
 
-    def get_owned_games(self, steam_id: str) -> list[OwnedSteamGame]:
+    def get_owned_games(self, steam_id: str) -> OwnedLibrary:
         """List the account's owned games with names and playtime.
 
         Requires the profile's game details to be public; a private profile comes back
-        empty (an empty list), which the caller reports rather than treating as an error.
+        empty, which the caller reports rather than treating as an error. The result
+        also carries whether the response was complete (nothing dropped and the entry
+        count matches ``game_count``), so a caller can refuse to prune from a partial
+        library.
         """
         if not steam_id:
             raise ValueError("steam_id is required")
@@ -113,13 +131,16 @@ class SteamClient:
             {"steamid": steam_id, "include_appinfo": 1, "include_played_free_games": 1},
         )
         envelope = _validate(OwnedGamesEnvelope, payload)
-        parsed, skipped = parse_owned_games(envelope.response.games)
+        raw = envelope.response.games
+        parsed, skipped = parse_owned_games(raw)
         if skipped:
             logger.warning("skipped %d malformed Steam game item(s)", skipped)
-        return [
+        games = [
             OwnedSteamGame(appid=g.appid, name=g.name, playtime_minutes=g.playtime_forever)
             for g in parsed
         ]
+        complete = skipped == 0 and len(raw) == envelope.response.game_count
+        return OwnedLibrary(games=games, skipped=skipped, complete=complete)
 
     # --- request plumbing ---
 
