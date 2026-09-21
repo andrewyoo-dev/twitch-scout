@@ -291,6 +291,11 @@ def _configure_logging(verbose: bool) -> None:
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # httpx logs each request URL at INFO. The Steam Web API carries its key in the
+    # query string, so that would leak the key into stdout/CI logs. Keep httpx (and
+    # its transport) at WARNING regardless of --verbose; app-level logs are unaffected.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def _force_utf8_output() -> None:

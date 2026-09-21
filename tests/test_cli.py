@@ -200,6 +200,18 @@ def test_steam_sync_without_credentials_exits_cleanly(
     assert "STEAM_API_KEY" in err
 
 
+def test_httpx_logging_is_muted_to_protect_the_steam_key() -> None:
+    # httpx logs request URLs at INFO; the Steam API key rides in the query string,
+    # so httpx must stay at WARNING (even under --verbose) or the key leaks to logs.
+    import logging
+
+    from twitch_scout.cli import _configure_logging
+
+    _configure_logging(verbose=True)
+    assert logging.getLogger("httpx").level == logging.WARNING
+    assert logging.getLogger("httpcore").level == logging.WARNING
+
+
 def test_bad_env_exits_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
