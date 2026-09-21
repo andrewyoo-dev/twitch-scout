@@ -1,7 +1,7 @@
 # Plan: run the collector on AWS Lambda (EventBridge Scheduler)
 
 > **Status: deferred alternative (not the current setup).**
-> The reliability problem was solved more simply with cron-job.org calling GitHub `workflow_dispatch` (see `HANDOFF_COLLECTION_RELIABILITY.md`).
+> The reliability problem was solved more simply with cron-job.org calling GitHub `workflow_dispatch` (see [../DECISIONS.md](../DECISIONS.md)).
 > Keep this as the upgrade path if cron-job.org proves insufficient, or if you want 24/7 self-owned scheduling without a third party holding a token.
 
 Replace the unreliable GitHub Actions `schedule` with a Lambda that runs
@@ -9,7 +9,7 @@ Replace the unreliable GitHub Actions `schedule` with a Lambda that runs
 from the collection path entirely — no `workflow_dispatch`, no GitHub PAT — and keeps
 all secrets inside your own AWS account.
 
-Context for the problem this solves: `HANDOFF_COLLECTION_RELIABILITY.md`.
+Context for the problem this solves: [../DECISIONS.md](../DECISIONS.md).
 
 ---
 

@@ -19,3 +19,8 @@ venv/
 # Environment / secrets — never commit Twitch or Turso credentials
 .env
 .env.*
+
+# Local review workspace: review-feedback and per-review reports are transient handoff
+# notes between Claude and Astra. Confirmed fixes live in commits/tests, durable
+# decisions in docs/DECISIONS.md. A fresh clone does not have this directory.
+reviews/

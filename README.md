@@ -2,8 +2,9 @@
 
 A personal CLI that samples the Twitch Helix API at the hours you actually stream,
 so you can pick the next game from real data instead of gut feel. See
-[TWITCH_SCOUT_HANDOFF.md](TWITCH_SCOUT_HANDOFF.md) for the why, the metrics that
-matter, and the two noise traps the ranking must guard against.
+[docs/TWITCH_SCOUT_HANDOFF.md](docs/TWITCH_SCOUT_HANDOFF.md) for the why, the metrics
+that matter, and the two noise traps the ranking must guard against; key design
+decisions are in [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Stack
 
@@ -53,6 +54,9 @@ key at <https://steamcommunity.com/dev/apikey>; your profile's game details must
 public for `steam-sync` to read the library.
 
 ## Development
+
+For Claude Code implementation and independent Astra review, follow [docs/REVIEW_WORKFLOW.md](docs/REVIEW_WORKFLOW.md).
+Active review notes live in a local, gitignored `reviews/` directory; confirmed fixes land in commits and tests, durable decisions in [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ```bash
 ruff check . && ruff format --check . && mypy twitch_scout && pytest -q

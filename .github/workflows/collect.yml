@@ -5,7 +5,7 @@ name: collect
 # `schedule` events are best-effort and were dropping the decision-grade window
 # samples, so scheduling lives outside GitHub. The collector decides window vs
 # baseline from a Pacific-time clock and skips already-sampled slots, so a fixed
-# trigger cadence is safe and cheap. See HANDOFF_COLLECTION_RELIABILITY.md.
+# trigger cadence is safe and cheap. See docs/DECISIONS.md.
 on:
   workflow_dispatch: {}
 

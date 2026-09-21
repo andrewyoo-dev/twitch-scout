@@ -3,7 +3,7 @@
 This is the product. Ranking by viewers-per-channel without these guards surfaces
 one-off events: a category with a single big streamer live for an hour yields an
 absurd ratio and floats to the top (real offenders during manual analysis:
-Claw Machine Sim, Ratatouille, Iron Man 2). See TWITCH_SCOUT_HANDOFF.md section 7.
+Claw Machine Sim, Ratatouille, Iron Man 2). See docs/TWITCH_SCOUT_HANDOFF.md section 7.
 
 Everything here is a pure function over already-computed stats, so it can be tested
 against fixtures without a database or the Twitch API. The stats themselves come
