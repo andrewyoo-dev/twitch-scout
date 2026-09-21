@@ -200,6 +200,11 @@ def _rank_config_from_args(args: argparse.Namespace) -> RankConfig:
                 else guard_defaults.max_avg_channels
             ),
         )
+        # The owned section keeps its relaxed floor/min-channels, but shares the
+        # user's --max-channels ceiling: without it, giant owned categories (Valheim,
+        # CS) top the section by score, which is the opposite of surfacing the
+        # low-competition owned games a tiny channel can actually appear in.
+        owned_guards = replace(rank_defaults.owned_guards, max_avg_channels=guards.max_avg_channels)
         return RankConfig(
             eval_days=args.days,
             hide_falling=args.hide_falling,
@@ -209,6 +214,7 @@ def _rank_config_from_args(args: argparse.Namespace) -> RankConfig:
                 else rank_defaults.concentration_penalty
             ),
             guards=guards,
+            owned_guards=owned_guards,
         )
     except ValueError as exc:
         raise ConfigError(str(exc)) from exc

@@ -52,6 +52,19 @@ def test_parser_rank_concentration_penalty() -> None:
     assert args.concentration_penalty == 0.7
 
 
+def test_max_channels_also_caps_the_owned_section() -> None:
+    # --max-channels must reach owned_guards, or giant owned categories dominate the
+    # owned section (the opposite of surfacing low-competition owned games).
+    from twitch_scout.cli import _rank_config_from_args
+
+    args = build_parser().parse_args(["rank", "--max-channels", "50"])
+    config = _rank_config_from_args(args)
+    assert config.guards.max_avg_channels == 50.0
+    assert config.owned_guards.max_avg_channels == 50.0
+    # The owned floor stays relaxed (not tied to the main floor).
+    assert config.owned_guards.min_viewer_floor < config.guards.min_viewer_floor
+
+
 def test_parser_rejects_unknown_tier() -> None:
     with pytest.raises(SystemExit):
         build_parser().parse_args(["collect", "--tier", "nonsense"])
