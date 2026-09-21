@@ -114,6 +114,28 @@ def test_load_candidates_returns_resolved_as_helix_games(conn: sqlite3.Connectio
     assert [(g.id, g.name) for g in candidates] == [("t1", "Cozy Cove")]  # unresolved excluded
 
 
+def test_sync_prunes_games_no_longer_owned(conn: sqlite3.Connection) -> None:
+    lookup = FakeLookup({"Cozy Cove": "t1", "Old Game": "t2"})
+    first = FakeSteam([OwnedSteamGame(1, "Cozy Cove", 600), OwnedSteamGame(2, "Old Game", 30)])
+    sync_owned_games(first, lookup, conn, CLOCK, steam_id="id")
+    # A later refresh no longer includes appid 2.
+    second = FakeSteam([OwnedSteamGame(1, "Cozy Cove", 700)])
+    sync_owned_games(second, lookup, conn, CLOCK, steam_id="id")
+    assert [o.twitch_game_id for o in fetch_owned(conn)] == ["t1"]
+
+
+def test_sync_does_not_wipe_library_on_empty_fetch(conn: sqlite3.Connection) -> None:
+    # An empty response (a private profile is indistinguishable from an empty library)
+    # must never delete the stored library (Astra R1 safety).
+    lookup = FakeLookup({"Cozy Cove": "t1"})
+    sync_owned_games(
+        FakeSteam([OwnedSteamGame(1, "Cozy Cove", 600)]), lookup, conn, CLOCK, steam_id="id"
+    )
+    result = sync_owned_games(FakeSteam([]), lookup, conn, CLOCK, steam_id="id")
+    assert result.owned == 0
+    assert [o.twitch_game_id for o in fetch_owned(conn)] == ["t1"]  # preserved
+
+
 def test_sync_with_no_matches_stores_all_unresolved(conn: sqlite3.Connection) -> None:
     steam = FakeSteam([OwnedSteamGame(appid=1, name="Obscure", playtime_minutes=1)])
     lookup = FakeLookup({})

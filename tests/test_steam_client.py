@@ -118,6 +118,27 @@ def test_api_key_never_appears_in_raised_error() -> None:
     assert "super-secret-key" not in str(excinfo.value)
 
 
+@pytest.mark.parametrize("body", [b"not JSON", b'{"response":{"games":null}}'])
+def test_malformed_owned_response_raises_steam_error(body: bytes) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body)
+
+    client = SteamClient("key", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(SteamApiError):
+        client.get_owned_games("76561190000000000")
+
+
+@pytest.mark.parametrize("body", [b"not JSON", b'{"response":{"success":"bad"}}'])
+def test_malformed_vanity_response_raises_steam_error(body: bytes) -> None:
+    # R2 requires the vanity-resolution path to be hardened too, not just owned games.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body)
+
+    client = SteamClient("key", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(SteamApiError):
+        client.resolve_steam_id("kamagui")
+
+
 def test_client_is_a_context_manager() -> None:
     with _client(SteamMock()) as client:
         assert client.resolve_steam_id("kamagui") == "76561190000000000"

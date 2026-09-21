@@ -23,7 +23,13 @@ from twitch_scout.collect.collector import Collector, CollectResult
 from twitch_scout.collect.tiers import Tier
 from twitch_scout.config import Config, ConfigError
 from twitch_scout.rank.guards import GuardConfig
-from twitch_scout.rank.rank import Candidate, RankConfig, RankResult, rank_candidates
+from twitch_scout.rank.rank import (
+    Candidate,
+    RankConfig,
+    RankResult,
+    rank_candidates,
+    relaxed_owned_guards,
+)
 from twitch_scout.steam.client import SteamClient, SteamError
 from twitch_scout.steam.sync import load_candidates, sync_owned_games
 from twitch_scout.store.db import StoreError, connect, schema_version
@@ -77,7 +83,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="how hard to down-rank single-giant categories: 0 = raw viewers, "
         "1 = channel count only, 0.5 = geometric mean (default: 0.75)",
     )
-    rank.add_argument("--limit", type=int, default=25, help="rows to show")
+    rank.add_argument(
+        "--limit", type=int, default=25, help="rows to show per section (main and owned)"
+    )
     rank.add_argument("--hide-falling", action="store_true", help="drop cooling categories")
     rank.add_argument(
         "--show-rejected", action="store_true", help="also list filtered-out categories and why"
@@ -204,14 +212,15 @@ def _rank_config_from_args(args: argparse.Namespace) -> RankConfig:
         # user's --max-channels ceiling: without it, giant owned categories (Valheim,
         # CS) top the section by score, which is the opposite of surfacing the
         # low-competition owned games a tiny channel can actually appear in.
-        # Clamp the owned min below the ceiling so a sub-1 ceiling (a valid, if odd,
-        # --max-channels) does not invert owned_guards (max < min) and abort rank.
-        owned_defaults = rank_defaults.owned_guards
+        # If the ceiling is below the owned minimum, the section would be empty anyway;
+        # disable it (None) rather than loosen the owned minimum to force it to build.
+        owned_defaults = relaxed_owned_guards()
         ceiling = guards.max_avg_channels
-        owned_min = owned_defaults.min_avg_channels
-        if ceiling is not None and ceiling < owned_min:
-            owned_min = ceiling
-        owned_guards = replace(owned_defaults, min_avg_channels=owned_min, max_avg_channels=ceiling)
+        owned_guards: GuardConfig | None
+        if ceiling is not None and ceiling < owned_defaults.min_avg_channels:
+            owned_guards = None
+        else:
+            owned_guards = replace(owned_defaults, max_avg_channels=ceiling)
         return RankConfig(
             eval_days=args.days,
             hide_falling=args.hide_falling,

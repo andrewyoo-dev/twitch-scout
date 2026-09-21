@@ -25,7 +25,7 @@ from twitch_scout.store.db import Connection
 from twitch_scout.store.steam import OwnedGame, fetch_owned
 
 
-def _relaxed_owned_guards() -> GuardConfig:
+def relaxed_owned_guards() -> GuardConfig:
     # Owned games are the point of the section, so the guards only exclude the truly
     # dead (near-zero demand): a much lower viewer floor, a single channel, and a
     # single sample. A resolved owned game with no live streams reads as 0 viewers
@@ -52,7 +52,9 @@ class RankConfig:
     guards: GuardConfig = field(default_factory=GuardConfig)
     # Owned games get their own section with relaxed guards, so a game the streamer
     # owns but that ranks low still surfaces (the whole reason for the Steam source).
-    owned_guards: GuardConfig = field(default_factory=_relaxed_owned_guards)
+    # None disables the section: used when a channel ceiling below the owned minimum
+    # would make it empty anyway, without loosening the owned minimum to force it.
+    owned_guards: GuardConfig | None = field(default_factory=relaxed_owned_guards)
 
     def __post_init__(self) -> None:
         # Validate at the boundary: a nonsensical config is a bug, not something to
@@ -98,12 +100,15 @@ def rank_candidates(conn: Connection, clock: Clock, config: RankConfig) -> RankR
     eligible, rejected = partition(stats, config.guards)
 
     # The owned section runs relaxed guards over the owned-only subset, so an owned
-    # game that the strict guards drop can still surface here.
-    owned_stats = [s for s in stats if s.game_id in owned_by_id]
-    owned_eligible, _ = partition(owned_stats, config.owned_guards)
+    # game that the strict guards drop can still surface here. owned_guards=None
+    # disables the section (e.g. a channel ceiling below the owned minimum).
+    owned_ids: list[str] = []
+    if config.owned_guards is not None:
+        owned_stats = [s for s in stats if s.game_id in owned_by_id]
+        owned_eligible, _ = partition(owned_stats, config.owned_guards)
+        owned_ids = [result.game_id for result in owned_eligible]
 
     eligible_ids = [result.game_id for result in eligible]
-    owned_ids = [result.game_id for result in owned_eligible]
     # One series fetch for the union of both sets.
     series = fetch_window_series(
         conn, clock, list(dict.fromkeys(eligible_ids + owned_ids)), eval_days=config.eval_days

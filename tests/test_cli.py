@@ -57,12 +57,34 @@ def test_max_channels_also_caps_the_owned_section() -> None:
     # owned section (the opposite of surfacing low-competition owned games).
     from twitch_scout.cli import _rank_config_from_args
 
-    args = build_parser().parse_args(["rank", "--max-channels", "50"])
-    config = _rank_config_from_args(args)
+    config = _rank_config_from_args(build_parser().parse_args(["rank", "--max-channels", "50"]))
     assert config.guards.max_avg_channels == 50.0
+    assert config.owned_guards is not None
     assert config.owned_guards.max_avg_channels == 50.0
     # The owned floor stays relaxed (not tied to the main floor).
     assert config.owned_guards.min_viewer_floor < config.guards.min_viewer_floor
+
+
+@pytest.mark.parametrize(
+    ("ceiling", "owned_disabled"),
+    [("0", True), ("0.5", True), ("1", False), ("50", False)],
+)
+def test_sub_min_ceiling_disables_owned_without_loosening_min(
+    ceiling: str, owned_disabled: bool
+) -> None:
+    # A ceiling below the owned minimum (1) disables the owned section rather than
+    # loosening its minimum to force construction (Astra R3).
+    from twitch_scout.cli import _rank_config_from_args
+    from twitch_scout.rank.rank import relaxed_owned_guards
+
+    args = build_parser().parse_args(["rank", "--min-channels", "0", "--max-channels", ceiling])
+    config = _rank_config_from_args(args)
+    if owned_disabled:
+        assert config.owned_guards is None
+    else:
+        assert config.owned_guards is not None
+        # The owned minimum is never loosened below its relaxed default.
+        assert config.owned_guards.min_avg_channels == relaxed_owned_guards().min_avg_channels
 
 
 def test_parser_rejects_unknown_tier() -> None:
