@@ -19,7 +19,7 @@ from typing import Protocol
 from twitch_scout.clock import Clock
 from twitch_scout.steam.client import OwnedSteamGame
 from twitch_scout.store.db import Connection
-from twitch_scout.store.steam import SteamGame, fetch_candidates, upsert_steam_games
+from twitch_scout.store.steam import SteamGame, fetch_candidates, replace_owned_games
 from twitch_scout.twitch.models import HelixGame
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,8 @@ def sync_owned_games(
             )
         )
 
-    written = upsert_steam_games(conn, rows, clock.now())
+    # Replace (not just upsert) so games no longer owned stop being candidates.
+    written = replace_owned_games(conn, rows, clock.now())
     return SyncResult(
         owned=len(games),
         resolved=len(resolution),

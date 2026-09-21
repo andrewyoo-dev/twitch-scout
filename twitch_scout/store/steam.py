@@ -98,6 +98,42 @@ def upsert_steam_games(conn: Connection, games: list[SteamGame], synced_at: date
     return len(params)
 
 
+def replace_owned_games(conn: Connection, games: list[SteamGame], synced_at: datetime) -> int:
+    """Upsert the owned library and drop owned rows no longer present, atomically.
+
+    steam-sync fetches the full owned library, so the fetched set is authoritative:
+    a game removed from Steam (uninstalled, refunded, delisted) must stop being a
+    candidate. Pruning is scoped to source='owned' so other sources are untouched.
+
+    An empty ``games`` is a no-op that returns 0: a transient empty/private response
+    must never wipe the stored library. Returns the number of rows upserted.
+    """
+    if not games:
+        return 0
+    synced = to_iso(synced_at)
+    params = [
+        (
+            g.appid,
+            g.name,
+            g.playtime_minutes,
+            g.twitch_game_id,
+            g.twitch_game_name,
+            g.source,
+            synced,
+        )
+        for g in games
+    ]
+    keep = [g.appid for g in games]
+    placeholders = ",".join("?" for _ in keep)
+    with transaction(conn):
+        conn.executemany(_UPSERT, params)
+        conn.execute(
+            f"DELETE FROM steam_games WHERE source = 'owned' AND appid NOT IN ({placeholders})",
+            keep,
+        )
+    return len(params)
+
+
 def fetch_candidates(conn: Connection) -> list[OwnedGame]:
     """Every resolved library game (any source), deduped by Twitch category id.
 

@@ -17,6 +17,7 @@ import logging
 from dataclasses import dataclass
 
 import httpx
+from pydantic import BaseModel, ValidationError
 
 from twitch_scout.steam.models import (
     VANITY_SUCCESS,
@@ -94,7 +95,7 @@ class SteamClient:
         if candidate.isdigit() and len(candidate) == _STEAMID64_LEN:
             return candidate
         payload = self._get(RESOLVE_VANITY_URL, {"vanityurl": candidate})
-        parsed = VanityEnvelope.model_validate(payload)
+        parsed = _validate(VanityEnvelope, payload)
         if parsed.response.success != VANITY_SUCCESS or not parsed.response.steamid:
             raise SteamApiError(f"could not resolve Steam vanity name {candidate!r}")
         return parsed.response.steamid
@@ -111,7 +112,7 @@ class SteamClient:
             OWNED_GAMES_URL,
             {"steamid": steam_id, "include_appinfo": 1, "include_played_free_games": 1},
         )
-        envelope = OwnedGamesEnvelope.model_validate(payload)
+        envelope = _validate(OwnedGamesEnvelope, payload)
         parsed, skipped = parse_owned_games(envelope.response.games)
         if skipped:
             logger.warning("skipped %d malformed Steam game item(s)", skipped)
@@ -130,12 +131,30 @@ class SteamClient:
             # Do not include the URL: it carries the key. Name the endpoint instead.
             raise SteamApiError(f"Steam request to {_endpoint_name(url)} failed: {exc}") from exc
         if response.status_code == _HTTP_OK:
-            return response.json()
+            try:
+                return response.json()
+            except ValueError as exc:  # JSONDecodeError: a 200 with a non-JSON body
+                raise SteamApiError(
+                    f"Steam API returned a non-JSON body from {_endpoint_name(url)}"
+                ) from exc
         if response.status_code in (_HTTP_UNAUTHORIZED, _HTTP_FORBIDDEN):
             raise SteamAuthError(
                 f"Steam API returned HTTP {response.status_code} (check STEAM_API_KEY)"
             )
         raise SteamApiError(f"Steam API returned HTTP {response.status_code}")
+
+
+def _validate[T: BaseModel](model: type[T], payload: object) -> T:
+    """Validate a Steam payload, turning a schema mismatch into a SteamApiError.
+
+    The response shape is a trust boundary: a malformed body (e.g. ``games: null``)
+    must surface as a clean SteamError, not a raw pydantic traceback (standard 4)."""
+    try:
+        return model.model_validate(payload)
+    except ValidationError as exc:
+        raise SteamApiError(
+            f"Steam API returned an unexpected shape: {exc.error_count()} error(s)"
+        ) from exc
 
 
 def _endpoint_name(url: str) -> str:
