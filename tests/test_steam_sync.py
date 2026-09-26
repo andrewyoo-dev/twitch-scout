@@ -71,6 +71,9 @@ class FakeLookup:
                 out.append(HelixGame(id=hit[0], name=hit[1]))
         return out
 
+    def search_categories(self, query: str) -> list[HelixGame]:
+        return []  # tier-level search behaviour is covered in test_steam_resolve.py
+
 
 def test_sync_resolves_and_stores(conn: sqlite3.Connection) -> None:
     steam = FakeSteam(
@@ -159,6 +162,32 @@ def test_sync_does_not_wipe_library_on_empty_fetch(conn: sqlite3.Connection) -> 
     result = sync_owned_games(FakeSteam([]), lookup, conn, CLOCK, steam_id="id")
     assert result.owned == 0
     assert [o.twitch_game_id for o in fetch_owned(conn)] == ["t1"]  # preserved
+
+
+def test_sync_reports_fallback_matches_and_ignored_builds(conn: sqlite3.Connection) -> None:
+    steam = FakeSteam(
+        [
+            OwnedSteamGame(1, "Retro Rewind - Video Store Simulator", 1020),
+            OwnedSteamGame(2, "Fallout 76 Public Test Server", 0),
+            OwnedSteamGame(3, "Cozy Cove", 600),
+        ]
+    )
+    lookup = FakeLookup({"Retro Rewind: Video Store Simulator": "t1", "Cozy Cove": "t2"})
+    result = sync_owned_games(steam, lookup, conn, CLOCK, steam_id="id")
+    assert (result.resolved, result.unresolved, result.ignored) == (2, 0, 1)
+    assert result.fallbacks == (
+        ("Retro Rewind - Video Store Simulator", "Retro Rewind: Video Store Simulator", "variant"),
+    )
+
+
+def test_sync_applies_aliases(conn: sqlite3.Connection) -> None:
+    steam = FakeSteam([OwnedSteamGame(1, "Counter-Strike 2", 480)])
+    lookup = FakeLookup({"Counter-Strike": "cs"})
+    result = sync_owned_games(
+        steam, lookup, conn, CLOCK, steam_id="id", aliases={"counter-strike 2": "Counter-Strike"}
+    )
+    assert result.fallbacks == (("Counter-Strike 2", "Counter-Strike", "alias"),)
+    assert fetch_owned(conn)[0].twitch_game_id == "cs"
 
 
 def test_sync_with_no_matches_stores_all_unresolved(conn: sqlite3.Connection) -> None:

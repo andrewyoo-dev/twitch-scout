@@ -31,6 +31,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["twitch_scout*"]
 
+[tool.setuptools.package-data]
+"twitch_scout.steam" = ["aliases.toml"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

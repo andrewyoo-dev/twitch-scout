@@ -32,7 +32,9 @@ scout steam-sync                 # refresh the owned Steam library as candidates
 scout rank --max-channels 50     # rank the workable band + your owned games
 ```
 
-`steam-sync` resolves your owned games to Twitch categories and stores them; the
+`steam-sync` resolves your owned games to Twitch categories (exact names first, then
+safe normalization and a verified search; Twitch renames no rule should guess go in
+[twitch_scout/steam/aliases.toml](twitch_scout/steam/aliases.toml)) and stores them; the
 window-tier collector then samples those categories even when they never enter the
 top-N, and `rank` lists them in a separate "from your Steam library" section under
 relaxed guards (so a game you own but that ranks low still surfaces).

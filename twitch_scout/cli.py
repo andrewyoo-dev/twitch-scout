@@ -31,6 +31,7 @@ from twitch_scout.rank.rank import (
     relaxed_owned_guards,
 )
 from twitch_scout.steam.client import SteamClient, SteamError
+from twitch_scout.steam.resolve import load_aliases
 from twitch_scout.steam.sync import load_candidates, sync_owned_games
 from twitch_scout.store.db import StoreError, connect, schema_version
 from twitch_scout.twitch.client import HelixClient, TwitchError
@@ -144,6 +145,10 @@ def cmd_collect(args: argparse.Namespace, config: Config) -> int:
 def cmd_steam_sync(args: argparse.Namespace, config: Config) -> int:
     steam_creds = config.require_steam()  # ConfigError if unset
     twitch_creds = config.require_twitch()  # name resolution needs Helix Get Games
+    try:
+        aliases = load_aliases()
+    except ValueError as exc:  # includes TOMLDecodeError: a hand-edited file is a boundary
+        raise ConfigError(str(exc)) from exc
 
     conn = connect(config.db, auth_token=config.turso_auth_token)
     try:
@@ -152,15 +157,18 @@ def cmd_steam_sync(args: argparse.Namespace, config: Config) -> int:
             HelixClient.create(twitch_creds.client_id, twitch_creds.client_secret) as helix,
         ):
             result = sync_owned_games(
-                steam, helix, conn, SystemClock(), steam_id=steam_creds.steam_id
+                steam, helix, conn, SystemClock(), steam_id=steam_creds.steam_id, aliases=aliases
             )
     finally:
         conn.close()
 
     print(
         f"synced {result.owned} owned games: {result.resolved} resolved to Twitch, "
-        f"{result.unresolved} unresolved ({result.written} rows written)"
+        f"{result.unresolved} unresolved, {result.ignored} test/beta builds ignored "
+        f"({result.written} rows written)"
     )
+    for steam_name, twitch_name, tier in result.fallbacks:
+        print(f"  {tier:<8} {steam_name} -> {twitch_name}")
     if not result.complete:
         print(
             f"warning: incomplete Steam response ({result.skipped} item(s) dropped); "

@@ -37,6 +37,7 @@ class TwitchMock:
         self.token_status = 200
         self.games: list[tuple[list[dict[str, object]], str | None]] = [([], None)]
         self.name_to_id: dict[str, str] = {}  # Get Games by name
+        self.search: dict[str, list[str]] = {}  # Search Categories: query -> names
         self.streams: dict[str, list[tuple[list[dict[str, object]], str | None]]] = {}
         self.status_queue: deque[int] = deque()
         self.retry_after = "2"
@@ -70,6 +71,10 @@ class TwitchMock:
         if request.url.path.endswith("/games/top"):
             data, nxt = self._page(self.games, request.url.params.get("after"))
             return httpx.Response(200, json=_envelope(data, nxt))
+        if request.url.path.endswith("/search/categories"):
+            query = request.url.params.get("query", "")
+            data = [{"id": f"s{i}", "name": n} for i, n in enumerate(self.search.get(query, []))]
+            return httpx.Response(200, json=_envelope(data, None))
         if request.url.path.endswith("/games"):
             names = request.url.params.get_list("name")
             data = [{"id": self.name_to_id[n], "name": n} for n in names if n in self.name_to_id]
@@ -201,6 +206,25 @@ def test_get_games_by_name_dedupes() -> None:
     client, _ = _client(mock)
     games = client.get_games_by_name(["Cozy Cove", "Cozy Cove", ""])
     assert [g.id for g in games] == ["111"]
+
+
+# --- search categories ---
+
+
+def test_search_categories_returns_candidates() -> None:
+    mock = TwitchMock()
+    mock.search = {"Tiny Aquarium": ["Tiny Aquarium: Social Fishkeeping"]}
+    client, _ = _client(mock)
+    assert [g.name for g in client.search_categories("  Tiny Aquarium ")] == [
+        "Tiny Aquarium: Social Fishkeeping"
+    ]
+
+
+def test_search_categories_blank_query_makes_no_request() -> None:
+    mock = TwitchMock()
+    client, _ = _client(mock)
+    assert client.search_categories("   ") == []
+    assert mock.token_calls == 0
 
 
 # --- streams ---

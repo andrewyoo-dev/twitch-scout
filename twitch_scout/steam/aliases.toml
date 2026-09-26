@@ -1,0 +1,16 @@
+# Steam name -> Twitch category name, for owned games the automatic matcher
+# (twitch_scout/steam/resolve.py) cannot resolve safely: Twitch naming choices that no
+# normalization rule should guess.
+#
+# Rules:
+# - Add an entry only after confirming the Twitch category name (Helix Search Categories
+#   or the Twitch directory). A wrong alias silently samples the wrong category.
+# - Keys are Steam library names; matching ignores case and trademark marks.
+# - An alias whose target is not found on Twitch is reported by steam-sync, not dropped.
+
+[aliases]
+"Counter-Strike 2" = "Counter-Strike"                       # CS2 streams under the original category
+"Divinity: Original Sin 2" = "Divinity: Original Sin II"    # Twitch uses the Roman numeral
+"Tom Clancy's Rainbow Six Siege" = "Rainbow Six Siege"      # Twitch drops the "Tom Clancy's" prefix
+"DARK SOULS: Prepare To Die Edition" = "Dark Souls"         # the original game's category
+"tModLoader" = "Terraria"                                   # a Terraria mod loader; streamed as Terraria

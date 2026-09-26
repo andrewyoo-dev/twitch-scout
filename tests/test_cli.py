@@ -247,6 +247,26 @@ def test_httpx_logging_is_muted_to_protect_the_steam_key() -> None:
     assert logging.getLogger("httpcore").level == logging.WARNING
 
 
+def test_steam_sync_malformed_alias_file_exits_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from twitch_scout import cli
+
+    monkeypatch.setenv("SCOUT_DB", str(tmp_path / "scout.db"))
+    for key in ("STEAM_API_KEY", "STEAM_ID", "TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET"):
+        monkeypatch.setenv(key, "x")
+
+    def broken() -> dict[str, str]:
+        raise ValueError("aliases.toml: invalid entry 'X' = ''")
+
+    monkeypatch.setattr(cli, "load_aliases", broken)
+
+    code = main(["steam-sync"])
+
+    assert code == 1
+    assert "aliases.toml" in capsys.readouterr().err
+
+
 def test_bad_env_exits_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

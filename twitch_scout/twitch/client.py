@@ -41,10 +41,13 @@ TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 API_BASE = "https://api.twitch.tv/helix"
 TOP_GAMES_URL = f"{API_BASE}/games/top"
 GAMES_URL = f"{API_BASE}/games"
+SEARCH_CATEGORIES_URL = f"{API_BASE}/search/categories"
 STREAMS_URL = f"{API_BASE}/streams"
 
 # Helix accepts up to 100 `name` params per Get Games request (coding standard 1).
 _GAMES_NAME_BATCH = 100
+# One page of search results; callers verify the match, so more pages add only noise.
+_SEARCH_PAGE_SIZE = 20
 
 PAGE_SIZE = 100  # Helix maximum items per page
 _DEFAULT_TIMEOUT_S = 10.0
@@ -184,6 +187,20 @@ class HelixClient:
             parsed, _skipped = parse_games(envelope.data)
             games.extend(parsed)
         return games
+
+    def search_categories(self, query: str) -> list[HelixGame]:
+        """Search categories by name (Twitch's fuzzy search), first page only.
+
+        Results are candidates, not matches: the caller must verify them (see
+        ``steam/resolve.py``). An empty query returns [] without a request."""
+        cleaned = query.strip()
+        if not cleaned:
+            return []
+        envelope = self._get_page(
+            SEARCH_CATEGORIES_URL, {"query": cleaned, "first": _SEARCH_PAGE_SIZE}
+        )
+        parsed, _skipped = parse_games(envelope.data)
+        return parsed
 
     def get_streams(self, game_id: str, *, max_pages: int) -> StreamsResult:
         """Live streams for one game, paginated up to ``max_pages`` (each up to 100

@@ -1,55 +1,62 @@
 # Design decisions
 
-A short log of decisions that a future reader needs to understand the project, with
-the reasoning that is not obvious from the code.
+A short log of decisions that a future reader needs to understand the project, with the reasoning that is not obvious from the code.
 Newest first.
 
-## Collection is triggered by an external scheduler, not GitHub `schedule`
+## Steam names resolve through conservative tiers, never by truncating a title
 
-Decided 2026-09-19.
+Decided 2026-09-26.
 
-**Decision.** `scout collect --tier auto` is triggered every ~15 minutes by a
-cron-job.org job that calls the GitHub `workflow_dispatch` API; the workflow's
-`schedule:` crons were removed.
+**Decision.** `steam/resolve.py` maps Steam library names to Twitch categories through ordered tiers, each applied only to names the earlier tiers left unresolved: a reviewed alias file (`twitch_scout/steam/aliases.toml`), exact match, separator variants (`X - Y` to `X: Y`), known edition/year/expansion qualifiers stripped, and a Search Categories fallback that accepts exactly one verified result.
+Test and beta builds (PTS, Open Beta, Playtest) are not looked up.
+`steam-sync` prints every non-exact match with its tier so a wrong one is visible.
 
-**Why.** GitHub's scheduled events are best-effort: they are dropped and delayed
-under load, worst at the top of the hour, and high-frequency crons are throttled.
-This hit the window tier hardest, which is the decision-grade data `scout rank`
-depends on. Measured over four days, one Thursday stream window captured zero
-batches while every in-window scheduled fire was dropped. Lowering the cadence and
-offsetting the crons off `:00` did not help. An explicit `workflow_dispatch` is
-honored far more reliably, and the collector is idempotent (it skips an
-already-sampled slot before spending API calls), so any trigger cadence is safe.
-Confirmed after the switch: a Saturday window captured all 16 slots with no gaps.
+**Why.** Exact matching alone left 35 of 269 owned games unresolved, including the streamer's most-played cozy game.
+The mismatches were separators, edition qualifiers, a subtitle that only Twitch carries ("Tiny Aquarium" vs "Tiny Aquarium: Social Fishkeeping"), accents, and Twitch naming choices ("Counter-Strike 2" is streamed under "Counter-Strike").
+The tiers resolved 25 more (259 of 270), with 4 left deliberately unresolved because the candidates were ambiguous or unverified.
 
-**Trade-off accepted.** A GitHub fine-grained PAT (Actions read/write, this repo,
-expiring) is stored in cron-job.org. Secrets otherwise stay in a gitignored `.env`
-and GitHub repo secrets.
+**Alternative rejected.** Cutting a name at its first colon or dash and searching the remainder.
+It does not fix the motivating cases, because Get Games is an exact match and Twitch keeps the subtitle ("Retro Rewind: Video Store Simulator").
+It also reduces titles to series names that are different Twitch categories: "Divinity: Original Sin 2" becomes "Divinity" and "Endzone - A World Apart" becomes "Endzone", both of which exist.
+A wrong match is worse than a miss, because it samples the wrong category and shows an unowned game as owned.
+The useful part of that idea survives safely in the search tier: a result is accepted only if it is the full Steam title plus a subtitle, and only if exactly one result qualifies.
 
-**Alternatives rejected.** An always-on VPS/Pi (more robust but adds cost and a host
-to maintain); local Windows Task Scheduler (declined by the user; ask before
-re-proposing); keeping GitHub `schedule` and accepting sparse data (fails the window
-tier, which is the point). A further EventBridge -> Lambda upgrade is documented as a
-contingency in [plans/aws-lambda-collector.md](plans/aws-lambda-collector.md) if
-cron-job.org proves insufficient.
+**Aliases.** Editorial renames that no rule should guess live in a small, reviewed file in the repo, added only after confirming the Twitch name.
 
 ## Steam owned library is a candidate source, not just a display column
 
 Decided 2026-09-20.
 
-**Decision.** `scout steam-sync` resolves the owned Steam library to Twitch
-categories and stores it; the window-tier collector samples those categories even
-when they never enter the top-N, and `scout rank` lists owned games in a separate
-section under relaxed guards.
+**Decision.** `scout steam-sync` resolves the owned Steam library to Twitch categories and stores it.
+The window-tier collector samples those categories even when they never enter the top-N, and `scout rank` lists owned games in a separate section under relaxed guards.
 
-**Why.** Sampling only the top-N never observes a game the streamer owns that
-currently ranks low, which defeats the "what should I stream?" question. Owned games
-therefore need to be sampled as their own candidate set. The separate rank section
-with relaxed guards (a low viewer floor, one channel, one sample) surfaces
-low-ranked owned games; a resolved owned game with no live streams reads as zero
-viewers and is dropped by the relaxed floor, which is exactly "exclude the dead
-game". Sampling is confined to the window tier to keep the extra API calls off the
-hourly baseline.
+**Why.** Sampling only the top-N never observes a game the streamer owns that currently ranks low, which defeats the "what should I stream?" question.
+Owned games therefore need to be sampled as their own candidate set.
+The separate rank section with relaxed guards (a low viewer floor, one channel, one sample) surfaces low-ranked owned games.
+A resolved owned game with no live streams reads as zero viewers and is dropped by the relaxed floor, which is exactly "exclude the dead game".
+Sampling is confined to the window tier to keep the extra API calls off the hourly baseline.
+Pruning removed games happens only on a complete fetch, so a malformed item in a Steam response can never delete a still-owned game.
 
-**Scope.** v1 is owned games only. Manual watchlist, then wishlist, are the planned
-follow-ups (the `source` column already distinguishes them).
+**Scope.** v1 is owned games only.
+Manual watchlist, then wishlist, are the planned follow-ups; the `source` column already distinguishes them, and the watchlist will reuse the name resolution above.
+
+## Collection is triggered by an external scheduler, not GitHub `schedule`
+
+Decided 2026-09-19.
+
+**Decision.** `scout collect --tier auto` is triggered every ~15 minutes by a cron-job.org job that calls the GitHub `workflow_dispatch` API; the workflow's `schedule:` crons were removed.
+
+**Why.** GitHub's scheduled events are best-effort: they are dropped and delayed under load, worst at the top of the hour, and high-frequency crons are throttled.
+This hit the window tier hardest, which is the decision-grade data `scout rank` depends on.
+Measured over four days, one Thursday stream window captured zero batches while every in-window scheduled fire was dropped.
+Lowering the cadence and offsetting the crons off `:00` did not help.
+An explicit `workflow_dispatch` is honored far more reliably, and the collector is idempotent (it skips an already-sampled slot before spending API calls), so any trigger cadence is safe.
+Confirmed after the switch: a Saturday window captured all 16 slots with no gaps.
+
+**Trade-off accepted.** A GitHub fine-grained PAT (Actions read/write, this repo, expiring) is stored in cron-job.org.
+Secrets otherwise stay in a gitignored `.env` and GitHub repo secrets.
+
+**Alternatives rejected.** An always-on VPS or Pi (more robust but adds cost and a host to maintain).
+Local Windows Task Scheduler (declined by the user; ask before re-proposing).
+Keeping GitHub `schedule` and accepting sparse data (fails the window tier, which is the point).
+A further EventBridge to Lambda upgrade is documented as a contingency in [plans/aws-lambda-collector.md](plans/aws-lambda-collector.md) if cron-job.org proves insufficient.
