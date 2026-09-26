@@ -103,6 +103,19 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
         """,
         "CREATE INDEX IF NOT EXISTS idx_steam_twitch_game ON steam_games (twitch_game_id)",
     ),
+    (
+        # Watchlist: games the streamer wants tracked every window slot whether or not
+        # they are owned or on Steam, keyed by Twitch category (what actually gets
+        # sampled). Managed with `scout watch add/remove/list`.
+        """
+        CREATE TABLE IF NOT EXISTS watchlist (
+            twitch_game_id   TEXT PRIMARY KEY,
+            twitch_game_name TEXT NOT NULL,   -- Twitch's canonical name
+            requested_name   TEXT NOT NULL,   -- what the user typed
+            added_at         TEXT NOT NULL    -- ISO8601 UTC
+        )
+        """,
+    ),
 )
 
 SCHEMA_VERSION = len(MIGRATIONS)

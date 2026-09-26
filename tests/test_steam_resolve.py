@@ -192,6 +192,37 @@ def test_single_equal_result_beats_subtitled_ones() -> None:
     }
 
 
+class DuplicateHelix(FakeHelix):
+    """Search lists two same-named categories; Get Games maps the name to ``canonical``."""
+
+    def __init__(self, canonical: str | None) -> None:
+        super().__init__([])
+        self._canonical = canonical
+
+    def search_categories(self, query: str) -> list[HelixGame]:
+        self.search_queries.append(query)
+        return [
+            HelixGame(id="live", name="Anime Shop Simulator ✨"),
+            HelixGame(id="stale", name="Anime Shop Simulator ✨"),
+        ]
+
+    def get_games_by_name(self, names: list[str]) -> list[HelixGame]:
+        self.exact_queries.append(names)
+        if self._canonical and "Anime Shop Simulator ✨" in names:
+            return [HelixGame(id=self._canonical, name="Anime Shop Simulator ✨")]
+        return []
+
+
+def test_same_named_duplicates_defer_to_twitchs_canonical_category() -> None:
+    result = resolve_names(_owned("anime shop simulator"), DuplicateHelix("live"), {})
+    assert result.matches[1].id == "live"
+    assert result.via[1] == "search"
+
+
+def test_duplicates_stay_unresolved_without_a_canonical_answer() -> None:
+    assert resolve_names(_owned("anime shop simulator"), DuplicateHelix(None), {}).matches == {}
+
+
 def test_search_calls_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(resolve, "_MAX_SEARCHES", 2)
     helix = FakeHelix([])

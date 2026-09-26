@@ -103,8 +103,18 @@ def resolve_names(
     aliases: Mapping[str, str],
 ) -> Resolution:
     """Map owned appids to Twitch games through the tiers in the module docstring."""
-    pending = {g.appid: g.name for g in games if not _TEST_BUILD.search(g.name)}
-    ignored = frozenset(g.appid for g in games if g.appid not in pending)
+    return resolve_titles({g.appid: g.name for g in games}, lookup, aliases)
+
+
+def resolve_titles(
+    titles: Mapping[int, str],
+    lookup: SupportsGameLookup,
+    aliases: Mapping[str, str],
+) -> Resolution:
+    """Resolve arbitrary keyed titles (Steam appids, or any caller key such as a
+    watchlist request) through the same tiers."""
+    pending = {key: name for key, name in titles.items() if not _TEST_BUILD.search(name)}
+    ignored = frozenset(key for key in titles if key not in pending)
     matches: dict[int, HelixGame] = {}
     via: dict[int, str] = {}
 
@@ -178,9 +188,12 @@ def _search_tier(
                 logger.warning("search budget (%d) reached; leaving the rest unresolved", searches)
                 return
             searches += 1
-            verdict, game = _pick(lookup.search_categories(query), titles)
-            if verdict == "match" and game is not None:
-                matches[appid] = game
+            verdict, found = _pick(lookup.search_categories(query), titles)
+            if verdict == "ambiguous":
+                found = _canonical(found, lookup)
+                verdict = "match" if found else "ambiguous"
+            if verdict == "match":
+                matches[appid] = found[0]
                 via[appid] = "search"
                 break
             if verdict == "ambiguous":
@@ -188,23 +201,39 @@ def _search_tier(
                 break
 
 
-def _pick(results: list[HelixGame], titles: list[str]) -> tuple[str, HelixGame | None]:
-    """Choose one verified result: ("match", game), ("ambiguous", None) or ("none", None).
+def _pick(results: list[HelixGame], titles: list[str]) -> tuple[str, list[HelixGame]]:
+    """Classify verified results: ("match", [game]), ("ambiguous", games) or ("none", []).
 
     A single loose-equal result wins outright (e.g. "Dark Souls" over "Dark Souls:
     Remastered"); otherwise exactly one "<title>: <subtitle>" result is required.
     """
     equal = {_loose(t) for t in titles}
     prefixes = tuple(_fold(t) + ":" for t in titles)
-    exact = {g.id: g for g in results if _loose(g.name) in equal}
+    exact = list({g.id: g for g in results if _loose(g.name) in equal}.values())
     if len(exact) == 1:
-        return "match", next(iter(exact.values()))
-    if len(exact) > 1:
-        return "ambiguous", None
-    subtitled = {g.id: g for g in results if _fold(g.name).startswith(prefixes)}
+        return "match", exact
+    if exact:
+        return "ambiguous", exact
+    subtitled = list({g.id: g for g in results if _fold(g.name).startswith(prefixes)}.values())
     if len(subtitled) == 1:
-        return "match", next(iter(subtitled.values()))
-    return ("ambiguous", None) if subtitled else ("none", None)
+        return "match", subtitled
+    return ("ambiguous", subtitled) if subtitled else ("none", [])
+
+
+def _canonical(tied: list[HelixGame], lookup: SupportsGameLookup) -> list[HelixGame]:
+    """Break a tie between categories that share one exact name, via Get Games.
+
+    Twitch search can list stale duplicates of a category under the same name (e.g. two
+    "Anime Shop Simulator ✨"). Get Games returns only the category Twitch maps that name
+    to, so defer to it. Candidates with different names stay ambiguous: that is a real
+    choice (e.g. two different Rainbow Six 3 expansions), not a duplicate.
+    """
+    names = {g.name for g in tied}
+    if len(names) != 1:
+        return []
+    ids = {g.id for g in tied}
+    canonical = [g for g in lookup.get_games_by_name(list(names)) if g.id in ids]
+    return canonical if len(canonical) == 1 else []
 
 
 def _clean(name: str) -> str:

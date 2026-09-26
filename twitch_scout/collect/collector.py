@@ -71,11 +71,11 @@ class CollectResult:
     games_seen: int
     games_written: int
     games_failed: int
-    candidates_added: int = 0  # extra Steam candidates sampled beyond top-N (window tier)
+    candidates_added: int = 0  # extra candidates (owned + watchlist) sampled beyond top-N
 
 
 class Collector:
-    def __init__(  # noqa: PLR0913 -- injected collaborators (client, store, clock, config, schedule, steam source) are explicit by design
+    def __init__(  # noqa: PLR0913 -- injected collaborators (client, store, clock, config, schedule, extra-candidate source) are explicit by design
         self,
         client: SupportsHelix,
         conn: Connection,
@@ -83,18 +83,18 @@ class Collector:
         *,
         config: CollectorConfig | None = None,
         schedule: StreamSchedule = DEFAULT_SCHEDULE,
-        steam_candidates: Callable[[], list[HelixGame]] | None = None,
+        extra_candidates: Callable[[], list[HelixGame]] | None = None,
     ) -> None:
         self._client = client
         self._conn = conn
         self._clock = clock
         self._config = config or CollectorConfig()
         self._schedule = schedule
-        # Extra games to sample during the window tier: the resolved Steam library, so
-        # a game the streamer owns is observed even when it never enters the top-N.
-        # None = no Steam source wired in (the callable is only invoked for a window
-        # slot, so a baseline run never touches the store).
-        self._steam_candidates = steam_candidates
+        # Extra games to sample during the window tier (the resolved Steam library and
+        # the watchlist), so a game the streamer owns or watches is observed even when
+        # it never enters the top-N. None = no extra source wired in. The callable is
+        # only invoked for a window slot, so a baseline run never touches the store.
+        self._extra_candidates = extra_candidates
 
     def run(self, *, force: bool = False, tier: Tier | None = None) -> CollectResult:
         if self._config.per_stream:
@@ -113,7 +113,7 @@ class Collector:
 
         # A Get Top Games failure propagates: no game list, no sample.
         games = self._client.get_top_games(self._config.top_n)
-        candidates_added = self._append_steam_candidates(games, slot.tier)
+        candidates_added = self._append_extra_candidates(games, slot.tier)
 
         rows: list[Snapshot] = []
         failed = 0
@@ -155,18 +155,18 @@ class Collector:
             candidates_added=candidates_added,
         )
 
-    def _append_steam_candidates(self, games: list[HelixGame], tier: Tier) -> int:
-        """Append resolved Steam candidates (deduped against top-N) for a window slot.
+    def _append_extra_candidates(self, games: list[HelixGame], tier: Tier) -> int:
+        """Append extra candidates (deduped against top-N) for a window slot.
 
         Only the window tier is enriched: it is the decision-grade data rank uses, and
         it keeps the extra API calls off the hourly baseline. Returns how many games
         were added. Mutates ``games`` in place.
         """
-        if tier is not Tier.WINDOW or self._steam_candidates is None:
+        if tier is not Tier.WINDOW or self._extra_candidates is None:
             return 0
         seen = {game.id for game in games}
-        extra = [game for game in self._steam_candidates() if game.id not in seen]
+        extra = [game for game in self._extra_candidates() if game.id not in seen]
         games.extend(extra)
         if extra:
-            logger.info("added %d Steam candidate(s) not in top-%d", len(extra), self._config.top_n)
+            logger.info("added %d extra candidate(s) not in top-%d", len(extra), self._config.top_n)
         return len(extra)

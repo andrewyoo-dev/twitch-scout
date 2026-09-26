@@ -21,8 +21,7 @@ from twitch_scout.clock import Clock
 from twitch_scout.steam.client import OwnedLibrary
 from twitch_scout.steam.resolve import SupportsGameLookup, resolve_names
 from twitch_scout.store.db import Connection
-from twitch_scout.store.steam import SteamGame, fetch_candidates, replace_owned_games
-from twitch_scout.twitch.models import HelixGame
+from twitch_scout.store.steam import SteamGame, replace_owned_games
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,6 @@ __all__ = [
     "SupportsGameLookup",
     "SupportsOwnedGames",
     "SyncResult",
-    "load_candidates",
     "sync_owned_games",
 ]
 
@@ -104,11 +102,3 @@ def sync_owned_games(  # noqa: PLR0913 -- injected collaborators plus the steam 
         ignored=ignored,
         fallbacks=tuple(fallbacks),
     )
-
-
-def load_candidates(conn: Connection) -> list[HelixGame]:
-    """Resolved library games as HelixGame, for the collector to sample."""
-    return [
-        HelixGame(id=candidate.twitch_game_id, name=candidate.twitch_game_name)
-        for candidate in fetch_candidates(conn)
-    ]

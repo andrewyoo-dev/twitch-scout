@@ -3,6 +3,22 @@
 A short log of decisions that a future reader needs to understand the project, with the reasoning that is not obvious from the code.
 Newest first.
 
+## The watchlist lives in the database and is managed from the CLI
+
+Decided 2026-09-26.
+
+**Decision.** `scout watch add/remove/list` stores watched games in a `watchlist` table (schema v3), keyed by Twitch category id.
+The collector samples every entry during the window tier, and `scout rank` shows them in their own section with the same relaxed guards and `--max-channels` ceiling as owned games.
+
+**Why.** Top-N sampling only catches a game that is currently big, so a small or new game the streamer wants to try is sampled rarely or never.
+Keying by Twitch category (not Steam appid) lets a watched game be unowned or not on Steam at all.
+The CLI and database were chosen over a repo file because adding a game should take effect at the next window slot without a commit, and a personal interest list does not belong in a public repo.
+Names resolve through the same tiers as the Steam library; an unverified name is refused with the closest candidates rather than guessed.
+
+**Duplicate categories.** Twitch search can list stale duplicates under one exact name (two "Anime Shop Simulator ✨").
+When the only tie is between identically named categories, resolution defers to Get Games, which returns the one category Twitch maps that name to.
+Ties between different names stay unresolved.
+
 ## Steam names resolve through conservative tiers, never by truncating a title
 
 Decided 2026-09-26.

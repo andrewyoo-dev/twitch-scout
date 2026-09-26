@@ -9,8 +9,9 @@ from datetime import UTC, datetime
 import pytest
 
 from twitch_scout.clock import FrozenClock
+from twitch_scout.collect.candidates import load_candidates
 from twitch_scout.steam.client import OwnedLibrary, OwnedSteamGame
-from twitch_scout.steam.sync import load_candidates, sync_owned_games
+from twitch_scout.steam.sync import sync_owned_games
 from twitch_scout.store.db import connect
 from twitch_scout.store.steam import fetch_owned
 from twitch_scout.twitch.models import HelixGame

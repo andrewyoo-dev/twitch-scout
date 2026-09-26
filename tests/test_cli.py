@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from twitch_scout.cli import build_parser, main
+from twitch_scout.twitch.models import HelixGame
 
 
 def test_parser_collect_defaults() -> None:
@@ -108,7 +109,7 @@ def test_init_db_creates_database(
 
     assert code == 0
     assert db.exists()
-    assert "schema v2" in capsys.readouterr().out
+    assert "schema v3" in capsys.readouterr().out
 
 
 def test_collect_without_credentials_exits_one(
@@ -265,6 +266,96 @@ def test_steam_sync_malformed_alias_file_exits_cleanly(
 
     assert code == 1
     assert "aliases.toml" in capsys.readouterr().err
+
+
+class _FakeHelixCM:
+    """Stands in for HelixClient.create(...) in `watch add`: context manager + lookup."""
+
+    def __init__(self, categories: dict[str, str], search: dict[str, list[str]]) -> None:
+        self._categories = categories
+        self._search = search
+
+    def __enter__(self) -> _FakeHelixCM:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def get_games_by_name(self, names: list[str]) -> list[HelixGame]:
+        wanted = {n.casefold() for n in names}
+        return [
+            HelixGame(id=i, name=n) for n, i in self._categories.items() if n.casefold() in wanted
+        ]
+
+    def search_categories(self, query: str) -> list[HelixGame]:
+        return [HelixGame(id=f"s-{n}", name=n) for n in self._search.get(query, [])]
+
+
+def _watch_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, helix: _FakeHelixCM) -> None:
+    from twitch_scout import cli
+
+    monkeypatch.setenv("SCOUT_DB", str(tmp_path / "scout.db"))
+    monkeypatch.setenv("TWITCH_CLIENT_ID", "x")
+    monkeypatch.setenv("TWITCH_CLIENT_SECRET", "x")
+    monkeypatch.setattr(cli.HelixClient, "create", lambda *a, **k: helix)
+
+
+def test_parser_watch_subcommands() -> None:
+    parser = build_parser()
+    assert parser.parse_args(["watch", "add", "A", "B C"]).names == ["A", "B C"]
+    assert parser.parse_args(["watch", "remove", "A"]).names == ["A"]
+    assert parser.parse_args(["watch", "list"]).watch_command == "list"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["watch"])
+
+
+def test_watch_add_list_remove_round_trip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    helix = _FakeHelixCM({"Anime Shop Simulator": "10"}, {})
+    _watch_env(tmp_path, monkeypatch, helix)
+
+    assert main(["watch", "add", "anime shop simulator"]) == 0
+    assert "watching: Anime Shop Simulator" in capsys.readouterr().out
+
+    assert main(["watch", "list"]) == 0
+    assert "Anime Shop Simulator" in capsys.readouterr().out
+
+    assert main(["watch", "remove", "Anime Shop Simulator"]) == 0
+    assert "removed: Anime Shop Simulator" in capsys.readouterr().out
+
+    assert main(["watch", "list"]) == 0
+    assert "watchlist is empty" in capsys.readouterr().out
+
+
+def test_watch_add_unresolved_shows_suggestions_and_exits_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    helix = _FakeHelixCM({}, {"Anime Shop": ["Anime Shop Simulator", "Anime Shop Tycoon"]})
+    _watch_env(tmp_path, monkeypatch, helix)
+
+    assert main(["watch", "add", "Anime Shop"]) == 1
+    out = capsys.readouterr().out
+    assert 'no verified Twitch category for "Anime Shop"' in out
+    assert "Anime Shop Simulator | Anime Shop Tycoon" in out
+
+
+def test_watch_remove_unknown_exits_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("SCOUT_DB", str(tmp_path / "scout.db"))
+    assert main(["watch", "remove", "Nope"]) == 1
+    assert 'not on the watchlist: "Nope"' in capsys.readouterr().out
+
+
+def test_watch_add_without_credentials_exits_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("SCOUT_DB", str(tmp_path / "scout.db"))
+    monkeypatch.delenv("TWITCH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("TWITCH_CLIENT_SECRET", raising=False)
+    assert main(["watch", "add", "Anything"]) == 1
+    assert "TWITCH_CLIENT_ID" in capsys.readouterr().err
 
 
 def test_bad_env_exits_one(

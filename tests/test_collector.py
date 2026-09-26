@@ -190,7 +190,7 @@ def test_tier_override_forces_window_on_an_off_day(conn: sqlite3.Connection) -> 
     assert stored == {"window"}
 
 
-# --- Steam candidate sampling (window tier only) ---
+# --- extra candidate sampling (owned + watchlist, window tier only) ---
 
 
 def _client_with_owned() -> FakeClient:
@@ -208,7 +208,7 @@ def _owned() -> list[HelixGame]:
 
 def test_window_tier_samples_steam_candidates(conn: sqlite3.Connection) -> None:
     client = _client_with_owned()
-    result = Collector(client, conn, WINDOW_CLOCK, steam_candidates=_owned).run()
+    result = Collector(client, conn, WINDOW_CLOCK, extra_candidates=_owned).run()
 
     assert result.candidates_added == 1
     assert (result.games_seen, result.games_written) == (2, 2)
@@ -226,7 +226,7 @@ def test_baseline_tier_does_not_sample_steam_candidates(conn: sqlite3.Connection
         return _owned()
 
     client = _client_with_owned()
-    result = Collector(client, conn, BASELINE_CLOCK, steam_candidates=candidates).run()
+    result = Collector(client, conn, BASELINE_CLOCK, extra_candidates=candidates).run()
 
     assert result.candidates_added == 0
     assert called is False  # the store is not even read on a baseline slot
@@ -236,7 +236,7 @@ def test_baseline_tier_does_not_sample_steam_candidates(conn: sqlite3.Connection
 def test_steam_candidate_already_in_top_n_is_not_double_sampled(conn: sqlite3.Connection) -> None:
     client = _client_with_owned()  # top-N has game "1"
     result = Collector(
-        client, conn, WINDOW_CLOCK, steam_candidates=lambda: [HelixGame(id="1", name="Top Game")]
+        client, conn, WINDOW_CLOCK, extra_candidates=lambda: [HelixGame(id="1", name="Top Game")]
     ).run()
 
     assert result.candidates_added == 0
