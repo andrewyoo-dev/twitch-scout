@@ -117,6 +117,7 @@ def resolve_titles(
     ignored = frozenset(key for key in titles if key not in pending)
     matches: dict[int, HelixGame] = {}
     via: dict[int, str] = {}
+    budget = _SearchBudget(_MAX_SEARCHES)
 
     def unresolved() -> dict[int, str]:
         return {appid: name for appid, name in pending.items() if appid not in matches}
@@ -126,44 +127,89 @@ def resolve_titles(
         for appid, name in unresolved().items()
         if _alias_key(name) in aliases
     }
-    _exact_tier(alias_candidates, lookup, "alias", matches, via)
+    _exact_tier(alias_candidates, lookup, "alias", matches, via, budget=budget)
     for appid, targets in alias_candidates.items():
         if appid not in matches:
             logger.warning("alias target %r not found on Twitch", targets[0])
 
-    _exact_tier({a: [_clean(n)] for a, n in unresolved().items()}, lookup, "exact", matches, via)
-    _exact_tier({a: _variants(n) for a, n in unresolved().items()}, lookup, "variant", matches, via)
-    _exact_tier(
-        {a: [s] for a, n in unresolved().items() if (s := _strip_edition(n))},
-        lookup,
-        "edition",
-        matches,
-        via,
-    )
-    _search_tier(unresolved(), lookup, matches, via)
+    exact = {a: [_clean(n)] for a, n in unresolved().items()}
+    _exact_tier(exact, lookup, "exact", matches, via, budget=budget)
+    variants = {a: _variants(n) for a, n in unresolved().items()}
+    _exact_tier(variants, lookup, "variant", matches, via, budget=budget)
+    editions = {a: [s] for a, n in unresolved().items() if (s := _strip_edition(n))}
+    _exact_tier(editions, lookup, "edition", matches, via, budget=budget)
+    _search_tier(unresolved(), lookup, matches, via, budget)
     return Resolution(matches=matches, via=via, ignored=ignored)
 
 
-def _exact_tier(
+class _SearchBudget:
+    """Search calls shared by every tier of one resolution (coding standard 1)."""
+
+    def __init__(self, limit: int) -> None:
+        self.remaining = limit
+
+    def take(self) -> bool:
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
+
+
+def _exact_tier(  # noqa: PLR0913 -- tier inputs plus the shared outputs and search budget
     candidates: dict[int, list[str]],
     lookup: SupportsGameLookup,
     tier: str,
     matches: dict[int, HelixGame],
     via: dict[int, str],
+    *,
+    budget: _SearchBudget,
 ) -> None:
-    """One batched Get Games call for every candidate name; first hit per appid wins."""
+    """One batched Get Games call for every candidate name; first verified hit wins."""
     names = list(dict.fromkeys(name for options in candidates.values() for name in options))
     if not names:
         return
     by_key = {_clean(game.name).casefold(): game for game in lookup.get_games_by_name(names)}
     for appid, options in candidates.items():
-        hit = next(
-            (by_key[k] for k in (_clean(o).casefold() for o in options) if k in by_key), None
-        )
-        if hit is not None:
-            matches[appid] = hit
-            if tier != "exact":
-                via[appid] = tier
+        for option in options:
+            hit = by_key.get(_clean(option).casefold())
+            if hit is not None and _clean(hit.name) != _clean(option):
+                hit = _confirm_case(option, hit, lookup, budget)
+            if hit is not None:
+                matches[appid] = hit
+                if tier != "exact":
+                    via[appid] = tier
+                break
+
+
+def _confirm_case(
+    name: str, hit: HelixGame, lookup: SupportsGameLookup, budget: _SearchBudget
+) -> HelixGame | None:
+    """Verify a Get Games hit whose name differs from the query only by letter case.
+
+    Get Games matches names case-insensitively and, when two categories differ only by
+    case, can return the other one ("Dressmaker" came back as the unrelated
+    "DressMaker"). Search for the name: if the hit is the only category with that
+    spelling it is accepted; otherwise the exact-case category wins, and with no
+    exact-case one the match is refused as ambiguous. Without search budget left the
+    hit is refused too, since a wrong match is worse than a miss.
+    """
+    if not budget.take():
+        logger.warning("search budget exhausted; not confirming %r -> %r", name, hit.name)
+        return None
+    key = _clean(name).casefold()
+    same = {g.id: g for g in lookup.search_categories(name) if _clean(g.name).casefold() == key}
+    same.setdefault(hit.id, hit)
+    if len(same) == 1:
+        return hit
+    exact_case = [g for g in same.values() if _clean(g.name) == _clean(name)]
+    if len(exact_case) == 1:
+        return exact_case[0]
+    logger.info(
+        "%r matches categories differing only by case: %s",
+        name,
+        sorted(g.name for g in same.values()),
+    )
+    return None
 
 
 def _search_tier(
@@ -171,6 +217,7 @@ def _search_tier(
     lookup: SupportsGameLookup,
     matches: dict[int, HelixGame],
     via: dict[int, str],
+    budget: _SearchBudget,
 ) -> None:
     """Search Categories, accepting only a single verified result per game.
 
@@ -179,15 +226,15 @@ def _search_tier(
     the full (or edition-stripped) Steam name, never a truncated base, so a series-name
     category cannot be picked up.
     """
-    searches = 0
     for appid, name in unresolved.items():
         titles = [t for t in (_clean(name), _strip_edition(name)) if t]
         queries = list(dict.fromkeys([*titles, _base_title(name)]))
         for query in queries:
-            if searches >= _MAX_SEARCHES:
-                logger.warning("search budget (%d) reached; leaving the rest unresolved", searches)
+            if not budget.take():
+                logger.warning(
+                    "search budget (%d) reached; leaving the rest unresolved", _MAX_SEARCHES
+                )
                 return
-            searches += 1
             verdict, found = _pick(lookup.search_categories(query), titles)
             if verdict == "ambiguous":
                 found = _canonical(found, lookup)

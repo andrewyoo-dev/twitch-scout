@@ -16,8 +16,13 @@ The CLI and database were chosen over a repo file because adding a game should t
 Names resolve through the same tiers as the Steam library; an unverified name is refused with the closest candidates rather than guessed.
 
 **Duplicate categories.** Twitch search can list stale duplicates under one exact name (two "Anime Shop Simulator ✨").
-When the only tie is between identically named categories, resolution defers to Get Games, which returns the one category Twitch maps that name to.
+When the only tie is between identically named categories, resolution defers to Get Games, which returns the one category Twitch maps that exact name to.
 Ties between different names stay unresolved.
+
+**Case-only twins.** Get Games matches names case-insensitively, so it is not authoritative when two categories differ only by letter case.
+Observed 2026-09-29: "Dressmaker" (the popular new game, 100+ channels) came back from Get Games as the unrelated "DressMaker" (9 channels).
+A Get Games hit whose case differs from the requested name is therefore confirmed with a search: it is accepted if it is the only category with that spelling, otherwise the exact-case category wins, and with no exact-case one the match is refused.
+This costs one search per case-only match (12 in the current Steam library) from the same bounded search budget.
 
 ## Steam names resolve through conservative tiers, never by truncating a title
 

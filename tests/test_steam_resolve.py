@@ -223,6 +223,54 @@ def test_duplicates_stay_unresolved_without_a_canonical_answer() -> None:
     assert resolve_names(_owned("anime shop simulator"), DuplicateHelix(None), {}).matches == {}
 
 
+class CaseTwinHelix(FakeHelix):
+    """Live-observed: two categories differ only by case, and Get Games (which matches
+    case-insensitively) returns the unrelated small one for either spelling."""
+
+    SMALL = HelixGame(id="small", name="DressMaker")
+    BIG = HelixGame(id="big", name="Dressmaker")
+
+    def __init__(self, twins_in_search: bool = True) -> None:
+        super().__init__([])
+        self._twins = twins_in_search
+
+    def get_games_by_name(self, names: list[str]) -> list[HelixGame]:
+        self.exact_queries.append(names)
+        return [self.SMALL] if any(n.casefold() == "dressmaker" for n in names) else []
+
+    def search_categories(self, query: str) -> list[HelixGame]:
+        self.search_queries.append(query)
+        return [self.SMALL, self.BIG] if self._twins else [self.SMALL]
+
+
+def test_case_twin_prefers_the_exact_case_category() -> None:
+    result = resolve_names(_owned("Dressmaker"), CaseTwinHelix(), {})
+    assert result.matches[1].id == "big"
+
+
+def test_case_twin_with_no_exact_case_spelling_is_refused() -> None:
+    assert resolve_names(_owned("dressmaker"), CaseTwinHelix(), {}).matches == {}
+
+
+def test_case_only_difference_without_a_twin_is_accepted() -> None:
+    # e.g. Steam "ELDEN RING" vs Twitch "Elden Ring": the only category with that spelling.
+    result = resolve_names(_owned("dressmaker"), CaseTwinHelix(twins_in_search=False), {})
+    assert result.matches[1].id == "small"
+
+
+def test_exact_case_hit_needs_no_confirmation_search() -> None:
+    helix = FakeHelix(["Dressmaker"])
+    assert resolve_names(_owned("Dressmaker"), helix, {}).matches[1].name == "Dressmaker"
+    assert helix.search_queries == []
+
+
+def test_case_mismatch_is_refused_when_search_budget_is_spent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(resolve, "_MAX_SEARCHES", 0)
+    assert resolve_names(_owned("Dressmaker"), CaseTwinHelix(), {}).matches == {}
+
+
 def test_search_calls_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(resolve, "_MAX_SEARCHES", 2)
     helix = FakeHelix([])
