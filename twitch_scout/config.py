@@ -19,6 +19,7 @@ from twitch_scout.collect.collector import CollectorConfig
 
 DEFAULT_DB = "scout.db"
 DEFAULT_TOP_N = 500
+DEFAULT_WINDOW_TOP_N = 1000
 DEFAULT_STREAMS_MAX_PAGES = 3
 
 
@@ -66,6 +67,7 @@ class Config:
         try:
             collector = CollectorConfig(
                 top_n=_int_env(env, "SCOUT_TOP_N", DEFAULT_TOP_N),
+                window_top_n=_int_env(env, "SCOUT_WINDOW_TOP_N", DEFAULT_WINDOW_TOP_N),
                 streams_max_pages=_int_env(
                     env, "SCOUT_STREAMS_MAX_PAGES", DEFAULT_STREAMS_MAX_PAGES
                 ),

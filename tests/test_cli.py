@@ -88,6 +88,28 @@ def test_sub_min_ceiling_disables_owned_without_loosening_min(
         assert config.owned_guards.min_avg_channels == relaxed_owned_guards().min_avg_channels
 
 
+def test_collect_top_overrides_both_tiers(monkeypatch: pytest.MonkeyPatch) -> None:
+    from twitch_scout import cli
+
+    seen = {}
+
+    class StopHere(Exception):
+        pass
+
+    def fake_collector(*args: object, config: object, **kwargs: object) -> object:
+        seen["config"] = config
+        raise StopHere
+
+    monkeypatch.setenv("TWITCH_CLIENT_ID", "x")
+    monkeypatch.setenv("TWITCH_CLIENT_SECRET", "x")
+    monkeypatch.setenv("SCOUT_DB", ":memory:")
+    monkeypatch.setattr(cli, "Collector", fake_collector)
+    with pytest.raises(StopHere):
+        main(["collect", "--top", "20"])
+    config = seen["config"]
+    assert (config.top_n, config.window_top_n) == (20, 20)  # type: ignore[attr-defined]
+
+
 def test_parser_rejects_unknown_tier() -> None:
     with pytest.raises(SystemExit):
         build_parser().parse_args(["collect", "--tier", "nonsense"])

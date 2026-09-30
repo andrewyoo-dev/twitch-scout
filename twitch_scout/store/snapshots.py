@@ -40,9 +40,14 @@ class Snapshot:
             raise ValueError("channels must be >= 0")
 
 
-_UPSERT = """
-INSERT INTO snapshots (ts, tier, game_id, game_name, viewers, channels, truncated)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+_COLUMNS = 7
+# Rows per INSERT statement. The Turso driver sends one HTTP request per statement (its
+# executemany loops row by row), so a 500-row batch cost ~500 sequential round trips and
+# ~4-5 minutes per collect. Multi-row VALUES cuts that to a handful of requests. 100 rows
+# x 7 params = 700 bound values, under SQLite's oldest variable limit (999).
+_ROWS_PER_STATEMENT = 100
+
+_UPSERT_TAIL = """
 ON CONFLICT (ts, game_id) DO UPDATE SET
     tier      = excluded.tier,
     game_name = excluded.game_name,
@@ -50,6 +55,14 @@ ON CONFLICT (ts, game_id) DO UPDATE SET
     channels  = excluded.channels,
     truncated = excluded.truncated
 """
+
+
+def _upsert_sql(row_count: int) -> str:
+    values = ", ".join(["(" + ", ".join(["?"] * _COLUMNS) + ")"] * row_count)
+    return (
+        "INSERT INTO snapshots (ts, tier, game_id, game_name, viewers, channels, truncated) "
+        f"VALUES {values}{_UPSERT_TAIL}"
+    )
 
 
 def write_batch(
@@ -61,15 +74,22 @@ def write_batch(
     """Write one sample batch idempotently. Returns the number of rows upserted.
 
     All rows go in a single transaction so a batch is all-or-nothing; a crash
-    mid-write leaves no partial batch behind.
+    mid-write leaves no partial batch behind. Rows are deduplicated by game id first
+    (the last reading wins, as row-by-row upserts would): a multi-row upsert cannot
+    touch the same key twice, and Helix pagination can repeat a game whose rank moved
+    between pages.
     """
     ts_iso = to_iso(ts)
+    latest = {r.game_id: r for r in rows}
     params = [
         (ts_iso, str(tier), r.game_id, r.game_name, r.viewers, r.channels, int(r.truncated))
-        for r in rows
+        for r in latest.values()
     ]
     with transaction(conn):
-        conn.executemany(_UPSERT, params)
+        # Bounded by len(params) / _ROWS_PER_STATEMENT (coding standard 1).
+        for start in range(0, len(params), _ROWS_PER_STATEMENT):
+            chunk = params[start : start + _ROWS_PER_STATEMENT]
+            conn.execute(_upsert_sql(len(chunk)), [value for row in chunk for value in row])
     return len(params)
 
 

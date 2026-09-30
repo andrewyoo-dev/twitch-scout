@@ -3,6 +3,28 @@
 A short log of decisions that a future reader needs to understand the project, with the reasoning that is not obvious from the code.
 Newest first.
 
+## Sample the top 1000 during stream hours, rank from a 50-viewer floor, batch the writes
+
+Decided 2026-09-29.
+
+**Decision.** The window tier samples the top 1000 categories (`SCOUT_WINDOW_TOP_N`); the hourly baseline stays at 500.
+The main ranking's default viewer floor drops from 100 to 50.
+Snapshot batches are written with multi-row upserts of 100 rows instead of one statement per row.
+
+**Why.** The streamer averages 3.3 viewers, and on the category directory a stream sits below every stream with more viewers.
+Measured during stream hours, a 3-viewer stream lands around 5th in categories ranked 500-1000 (about 50-160 total viewers), 16th at ~360 viewers, and 50th or worse above ~1,000.
+The top-500 cutoff during stream hours was about 110 viewers, so the best-fit band sat just outside what was being sampled.
+Past rank ~1,000 (under ~45 viewers) the position gains only a slot or two while the audience keeps halving, so 1,000 is the stopping point; ranks 1,251-1,500 had one usable category in a sample of 30.
+The old 100-viewer floor would have filtered out exactly the newly sampled categories.
+
+**Batched writes.** The Turso driver sends one HTTP request per statement, and its `executemany` loops row by row.
+A 500-row batch therefore took about 4-5 minutes of a 10-minute job, and 1,000 rows would have risked losing whole slots to the timeout.
+Measured against Turso: 1,000 rows in 2.9 s batched, versus about 145 s row by row.
+Rows are deduplicated by game id before writing, because a multi-row upsert cannot touch the same key twice.
+
+**Next.** Channel count is only a proxy for position (one category had 100 channels, yet a 3-viewer stream would still sit 5th because most streams were at 0-3 viewers).
+Storing a small viewer histogram per category would let rank sort by the streamer's actual expected position.
+
 ## The watchlist lives in the database and is managed from the CLI
 
 Decided 2026-09-26.

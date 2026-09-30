@@ -60,7 +60,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="auto lets the clock decide (default); window/baseline force it",
     )
-    collect.add_argument("--top", type=int, default=None, help="override SCOUT_TOP_N")
+    collect.add_argument(
+        "--top",
+        type=int,
+        default=None,
+        help="how many top games to sample this run, either tier "
+        "(default: SCOUT_TOP_N=500, or SCOUT_WINDOW_TOP_N=1000 in the window tier)",
+    )
     collect.add_argument(
         "--force", action="store_true", help="re-sample even if the slot already exists"
     )
@@ -133,7 +139,7 @@ def cmd_collect(args: argparse.Namespace, config: Config) -> int:
     collector_config = config.collector
     if args.top is not None:
         try:
-            collector_config = replace(collector_config, top_n=args.top)
+            collector_config = replace(collector_config, top_n=args.top, window_top_n=args.top)
         except ValueError as exc:
             # CollectorConfig validates the range; report it like any config error
             # rather than letting the ValueError surface as a traceback.

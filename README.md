@@ -52,7 +52,8 @@ Configuration is read from the environment:
 | --- | --- | --- |
 | `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` | — | required for `collect`, `steam-sync` |
 | `SCOUT_DB` | `scout.db` | local path, or the Turso libSQL URL in prod |
-| `SCOUT_TOP_N` | `500` | how many top games to sample |
+| `SCOUT_TOP_N` | `500` | how many top games to sample (hourly baseline) |
+| `SCOUT_WINDOW_TOP_N` | `1000` | how many top games to sample during stream hours |
 | `SCOUT_STREAMS_MAX_PAGES` | `3` | per-game stream page cap |
 | `STEAM_API_KEY` | — | required for `steam-sync` (free, from Steam) |
 | `STEAM_ID` | — | steamid64 or vanity name, for `steam-sync` |

@@ -228,6 +228,37 @@ def test_distinct_batches_accumulate(conn: sqlite3.Connection) -> None:
     assert conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0] == 4
 
 
+def _many(n: int, viewers: int = 10) -> list[Snapshot]:
+    return [Snapshot(str(i), f"Game {i}", viewers=viewers + i, channels=1) for i in range(n)]
+
+
+def test_large_batch_spans_several_statements(conn: sqlite3.Connection) -> None:
+    # 250 rows -> 3 multi-row statements (100 + 100 + 50); every row must land.
+    assert write_batch(conn, TS, Tier.WINDOW, _many(250)) == 250
+    assert conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0] == 250
+    assert read_batch(conn, TS)[0].viewers == 10 + 249  # highest first
+
+
+def test_large_batch_rewrite_is_idempotent(conn: sqlite3.Connection) -> None:
+    write_batch(conn, TS, Tier.WINDOW, _many(250))
+    write_batch(conn, TS, Tier.WINDOW, _many(250, viewers=500))
+    assert conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0] == 250
+    assert min(r.viewers for r in read_batch(conn, TS)) == 500
+
+
+def test_duplicate_game_in_one_batch_keeps_the_last_reading(conn: sqlite3.Connection) -> None:
+    # Helix pagination can repeat a game whose rank moved between pages; a multi-row
+    # upsert cannot touch the same key twice, so the batch is deduplicated first.
+    rows = [
+        Snapshot("111", "Job Simulator", viewers=140, channels=8),
+        Snapshot("222", "TCG Card Shop Simulator", viewers=82, channels=12),
+        Snapshot("111", "Job Simulator", viewers=150, channels=9),
+    ]
+    assert write_batch(conn, TS, Tier.WINDOW, rows) == 2
+    by_id = {r.game_id: r for r in read_batch(conn, TS)}
+    assert (by_id["111"].viewers, by_id["111"].channels) == (150, 9)
+
+
 def test_empty_batch_writes_nothing(conn: sqlite3.Connection) -> None:
     assert write_batch(conn, TS, Tier.WINDOW, []) == 0
     assert has_batch(conn, TS) is False

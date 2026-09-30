@@ -90,13 +90,13 @@ def test_good_candidate_passes() -> None:
     assert result.failures == ()
 
 
-def test_tcg_at_default_floor_is_below_hundred() -> None:
-    # TCG's 7-day average (82) sits just under the default 100 floor. That is the
-    # handoff's point: it was deferred, not disqualified. Lowering the tunable
-    # floor lets it back in, which is exactly the intended knob.
-    assert not evaluate(TCG_CARD_SHOP, GuardConfig()).passed
-    lenient = GuardConfig(min_viewer_floor=60.0)
-    assert evaluate(TCG_CARD_SHOP, lenient).passed
+def test_tcg_passes_the_small_channel_floor_but_not_the_handoff_one() -> None:
+    # TCG's 7-day average (82) was deferred under the handoff's ~100 floor. Measured
+    # for a ~3-viewer channel, 50-100 viewer categories still put it in the first few
+    # directory slots, so the default floor is 50 and TCG passes; the tunable floor
+    # can still be raised as the channel grows.
+    assert evaluate(TCG_CARD_SHOP, GuardConfig()).passed
+    assert not evaluate(TCG_CARD_SHOP, GuardConfig(min_viewer_floor=100.0)).passed
 
 
 def test_all_failures_are_collected_not_short_circuited() -> None:
@@ -160,8 +160,8 @@ def test_distinct_streamers_guard_raises_when_data_missing() -> None:
 def test_partition_splits_and_preserves_order() -> None:
     candidates = [RATATOUILLE, GOOD_CANDIDATE, DOLOC_TOWN, TCG_CARD_SHOP]
     eligible, rejected = partition(candidates, GuardConfig())
-    assert [r.game_id for r in eligible] == ["good"]
-    assert [r.game_id for r in rejected] == ["ratatouille", "doloc", "tcg"]
+    assert [r.game_id for r in eligible] == ["good", "tcg"]
+    assert [r.game_id for r in rejected] == ["ratatouille", "doloc"]
 
 
 @pytest.mark.parametrize(

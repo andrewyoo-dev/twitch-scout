@@ -62,6 +62,11 @@ def test_require_steam_raises_when_missing() -> None:
         config.require_steam()
 
 
+def test_window_top_n_defaults_and_overrides() -> None:
+    assert Config.from_env({}).collector.window_top_n == 1000
+    assert Config.from_env({"SCOUT_WINDOW_TOP_N": "750"}).collector.window_top_n == 750
+
+
 def test_non_integer_env_is_rejected() -> None:
     with pytest.raises(ConfigError, match="SCOUT_TOP_N must be an integer"):
         Config.from_env({"SCOUT_TOP_N": "lots"})

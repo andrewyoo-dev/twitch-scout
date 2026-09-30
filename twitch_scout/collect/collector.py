@@ -51,6 +51,11 @@ class SupportsHelix(Protocol):
 @dataclass(frozen=True)
 class CollectorConfig:
     top_n: int = 500
+    # The window tier samples deeper: for a ~3-viewer channel the best-fit categories
+    # (roughly 50-160 total viewers, where it lands in the first ~10 of the directory)
+    # sit at ranks ~500-1000 during stream hours, which top-500 never sees. The hourly
+    # baseline stays at top_n. See docs/DECISIONS.md (2026-09-29).
+    window_top_n: int = 1000
     streams_max_pages: int = 3
     # Per-stream collection (language, individual viewer counts) is designed for
     # but not yet wired to a table. Setting this fails loud rather than silently
@@ -60,6 +65,8 @@ class CollectorConfig:
     def __post_init__(self) -> None:
         if self.top_n <= 0:
             raise ValueError("top_n must be > 0")
+        if self.window_top_n <= 0:
+            raise ValueError("window_top_n must be > 0")
         if self.streams_max_pages <= 0:
             raise ValueError("streams_max_pages must be > 0")
 
@@ -112,12 +119,13 @@ class Collector:
             return CollectResult(slot, skipped=True, games_seen=0, games_written=0, games_failed=0)
 
         # A Get Top Games failure propagates: no game list, no sample.
-        games = self._client.get_top_games(self._config.top_n)
+        top_n = self._config.window_top_n if slot.tier is Tier.WINDOW else self._config.top_n
+        games = self._client.get_top_games(top_n)
         candidates_added = self._append_extra_candidates(games, slot.tier)
 
         rows: list[Snapshot] = []
         failed = 0
-        for game in games:  # bounded by top_n
+        for game in games:  # bounded by top_n plus the extra candidates
             try:
                 streams = self._client.get_streams(
                     game.id, max_pages=self._config.streams_max_pages
@@ -168,5 +176,5 @@ class Collector:
         extra = [game for game in self._extra_candidates() if game.id not in seen]
         games.extend(extra)
         if extra:
-            logger.info("added %d extra candidate(s) not in top-%d", len(extra), self._config.top_n)
+            logger.info("added %d extra candidate(s) not in the top games", len(extra))
         return len(extra)

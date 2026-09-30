@@ -250,3 +250,31 @@ def test_slot_ts_is_the_batch_key(conn: sqlite3.Connection) -> None:
     assert result.slot.ts == expected
     stored = {row[0] for row in conn.execute("SELECT DISTINCT ts FROM snapshots")}
     assert stored == {expected.astimezone(UTC).isoformat()}
+
+
+# --- window tier samples deeper than the baseline ---
+
+
+def test_window_tier_uses_window_top_n(conn: sqlite3.Connection) -> None:
+    client = _three_game_client()
+    Collector(client, conn, WINDOW_CLOCK).run()
+    assert client.top_games_calls == [1000]
+
+
+def test_baseline_tier_keeps_top_n(conn: sqlite3.Connection) -> None:
+    client = _three_game_client()
+    Collector(client, conn, BASELINE_CLOCK).run()
+    assert client.top_games_calls == [500]
+
+
+def test_window_top_n_is_configurable(conn: sqlite3.Connection) -> None:
+    client = _three_game_client()
+    config = CollectorConfig(top_n=50, window_top_n=2)
+    result = Collector(client, conn, WINDOW_CLOCK, config=config).run()
+    assert client.top_games_calls == [2]
+    assert result.games_written == 2
+
+
+def test_invalid_window_top_n_rejected() -> None:
+    with pytest.raises(ValueError, match="window_top_n"):
+        CollectorConfig(window_top_n=0)

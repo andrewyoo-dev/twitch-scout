@@ -46,8 +46,11 @@ class GuardConfig:
     as the channel grows (handoff section 7, Trap 2).
     """
 
-    # Trap 2: categories under ~100 viewers do not produce meaningful inflow.
-    min_viewer_floor: float = 100.0
+    # Trap 2: a category with too few viewers produces no meaningful inflow. The handoff
+    # guessed ~100; measured during stream hours (2026-09-29), a ~3-viewer channel still
+    # lands in the first ~5 of the directory at 50-100 total viewers, so the default is
+    # 50. Raise it as the channel grows.
+    min_viewer_floor: float = 50.0
     # Trap 1 / section 6 workable band lower bound: need real concurrent supply.
     min_avg_channels: float = 3.0
     # Trap 1: reject one-off events that appear in only a handful of samples.
