@@ -86,7 +86,7 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
         """,
     ),
     (
-        # Steam library as a candidate SOURCE: owned (later watchlist/wishlist) games,
+        # Steam library as a candidate SOURCE: owned games,
         # each resolved to a Twitch category id when a match exists. The collector
         # samples the resolved rows alongside top-N during the window tier; rank joins
         # on twitch_game_id to surface owned games in their own section.
@@ -97,7 +97,7 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
             playtime_minutes INTEGER NOT NULL DEFAULT 0,
             twitch_game_id   TEXT,                  -- resolved Twitch category id (NULL if none)
             twitch_game_name TEXT,                  -- Twitch's canonical name (display / dedupe)
-            source           TEXT    NOT NULL DEFAULT 'owned',  -- owned | watchlist | wishlist
+            source           TEXT    NOT NULL DEFAULT 'owned',  -- 'owned' (room for others)
             synced_at        TEXT    NOT NULL       -- ISO8601 UTC of the last steam-sync
         )
         """,
@@ -115,6 +115,13 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
             added_at         TEXT NOT NULL    -- ISO8601 UTC
         )
         """,
+    ),
+    (
+        # The watchlist (v3) was removed 2026-09-29: sampling the top 1000 during stream
+        # hours already covers every category worth streaming at the streamer's size, so
+        # a hand-kept list only added games under ~45 viewers. Migrations are append-only,
+        # so v3 stays and this drops its table.
+        "DROP TABLE IF EXISTS watchlist",
     ),
 )
 

@@ -190,7 +190,7 @@ def test_tier_override_forces_window_on_an_off_day(conn: sqlite3.Connection) -> 
     assert stored == {"window"}
 
 
-# --- extra candidate sampling (owned + watchlist, window tier only) ---
+# --- extra candidate sampling (owned Steam games, window tier only) ---
 
 
 def _client_with_owned() -> FakeClient:

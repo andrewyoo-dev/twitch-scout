@@ -111,8 +111,8 @@ def resolve_titles(
     lookup: SupportsGameLookup,
     aliases: Mapping[str, str],
 ) -> Resolution:
-    """Resolve arbitrary keyed titles (Steam appids, or any caller key such as a
-    watchlist request) through the same tiers."""
+    """Resolve arbitrary keyed titles (Steam appids, or any caller key) through the
+    same tiers."""
     pending = {key: name for key, name in titles.items() if not _TEST_BUILD.search(name)}
     ignored = frozenset(key for key in titles if key not in pending)
     matches: dict[int, HelixGame] = {}

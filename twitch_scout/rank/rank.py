@@ -23,13 +23,12 @@ from twitch_scout.rank.stats import median, percentile
 from twitch_scout.rank.trend import Trend, classify_trend, is_spike
 from twitch_scout.store.db import Connection
 from twitch_scout.store.steam import OwnedGame, fetch_owned
-from twitch_scout.store.watchlist import list_watch
 
 
 def relaxed_owned_guards() -> GuardConfig:
-    # Owned and watched games are the point of their sections, so the guards only
-    # exclude the truly dead (near-zero demand): a much lower viewer floor, a single
-    # channel, and a single sample. A tracked game with no live streams reads as 0
+    # Owned games are the point of their section, so the guards only exclude the
+    # truly dead (near-zero demand): a much lower viewer floor, a single channel,
+    # and a single sample. An owned game with no live streams reads as 0
     # viewers and is filtered by the floor, which is exactly "exclude the dead game".
     return GuardConfig(min_viewer_floor=10.0, min_avg_channels=1.0, min_sample_count=1)
 
@@ -56,8 +55,6 @@ class RankConfig:
     # None disables the section: used when a channel ceiling below the owned minimum
     # would make it empty anyway, without loosening the owned minimum to force it.
     owned_guards: GuardConfig | None = field(default_factory=relaxed_owned_guards)
-    # Same idea for the watchlist section (games the streamer asked to track).
-    watch_guards: GuardConfig | None = field(default_factory=relaxed_owned_guards)
 
     def __post_init__(self) -> None:
         # Validate at the boundary: a nonsensical config is a bug, not something to
@@ -90,8 +87,6 @@ class RankResult:
     candidates: list[Candidate]  # eligible, best first
     rejected: list[GuardResult]  # filtered out, with reasons
     owned: list[Candidate]  # owned games, relaxed guards, best first
-    watched: list[Candidate] = field(default_factory=list)  # watchlist (not owned), relaxed
-    watch_unsampled: list[str] = field(default_factory=list)  # watched, no window sample yet
 
 
 def rank_candidates(conn: Connection, clock: Clock, config: RankConfig) -> RankResult:
@@ -100,24 +95,21 @@ def rank_candidates(conn: Connection, clock: Clock, config: RankConfig) -> RankR
     )
     by_id = {agg.game_id: agg for agg in aggregates}
     owned_by_id = {game.twitch_game_id: game for game in fetch_owned(conn)}
-    # An owned game belongs in the owned section; the watchlist section is for the rest.
-    watch = {e.twitch_game_id: e for e in list_watch(conn) if e.twitch_game_id not in owned_by_id}
 
     stats = [_to_stats(agg) for agg in aggregates]
     eligible, rejected = partition(stats, config.guards)
 
-    # Side sections run relaxed guards over their own subset, so a game the strict
-    # guards drop can still surface. guards=None disables a section (e.g. a channel
-    # ceiling below its minimum).
+    # The owned section runs relaxed guards over the owned subset, so an owned game
+    # the strict guards drop can still surface. owned_guards=None disables it (e.g.
+    # a channel ceiling below its minimum).
     owned_ids = _side_section(stats, set(owned_by_id), config.owned_guards)
-    watched_ids = _side_section(stats, set(watch), config.watch_guards)
 
     eligible_ids = [result.game_id for result in eligible]
-    # One series fetch for the union of every section.
+    # One series fetch for the union of both sections.
     series = fetch_window_series(
         conn,
         clock,
-        list(dict.fromkeys(eligible_ids + owned_ids + watched_ids)),
+        list(dict.fromkeys(eligible_ids + owned_ids)),
         eval_days=config.eval_days,
     )
 
@@ -131,13 +123,10 @@ def rank_candidates(conn: Connection, clock: Clock, config: RankConfig) -> RankR
         cands.sort(key=lambda c: (c.score, c.window_viewers), reverse=True)
         return cands
 
-    unsampled = sorted(e.twitch_game_name for gid, e in watch.items() if gid not in by_id)
     return RankResult(
         candidates=build(eligible_ids),
         rejected=rejected,
         owned=build(owned_ids),
-        watched=build(watched_ids),
-        watch_unsampled=unsampled,
     )
 
 

@@ -1,6 +1,6 @@
 """Steam library persistence: the candidate-source table.
 
-Owned (and later watchlist/wishlist) games live in ``steam_games``, each resolved to
+Owned games live in ``steam_games``, each resolved to
 a Twitch category id when a match exists. Two consumers read it:
 
   * the collector samples the resolved rows alongside top-N during the window tier,

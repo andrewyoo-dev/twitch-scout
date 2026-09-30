@@ -78,7 +78,7 @@ class CollectResult:
     games_seen: int
     games_written: int
     games_failed: int
-    candidates_added: int = 0  # extra candidates (owned + watchlist) sampled beyond top-N
+    candidates_added: int = 0  # owned Steam games sampled beyond the top games
 
 
 class Collector:
@@ -97,10 +97,10 @@ class Collector:
         self._clock = clock
         self._config = config or CollectorConfig()
         self._schedule = schedule
-        # Extra games to sample during the window tier (the resolved Steam library and
-        # the watchlist), so a game the streamer owns or watches is observed even when
-        # it never enters the top-N. None = no extra source wired in. The callable is
-        # only invoked for a window slot, so a baseline run never touches the store.
+        # Extra games to sample during the window tier (the resolved Steam library), so
+        # a game the streamer owns is observed even when it never enters the top games.
+        # None = no extra source wired in. The callable is only invoked for a window
+        # slot, so a baseline run never touches the store.
         self._extra_candidates = extra_candidates
 
     def run(self, *, force: bool = False, tier: Tier | None = None) -> CollectResult:

@@ -29,15 +29,8 @@ scout init-db                    # create / migrate the database
 scout collect --tier auto        # one sample; the clock picks window vs baseline
 scout collect --tier baseline    # force a sample now (backfill / testing)
 scout steam-sync                 # refresh the owned Steam library as candidates
-scout watch add "Tiny Bookshop"  # track a game every window slot, owned or not
-scout watch list                 # show watched games (watch remove "Name" to stop)
-scout rank --max-channels 50     # rank the workable band + your owned and watched games
+scout rank --max-channels 40     # rank the workable band + your owned games
 ```
-
-`watch add` resolves a name to a Twitch category the same safe way as the Steam
-library; if no single category is verified it lists the closest names to retry with.
-Watched games are sampled every window slot from then on and appear in their own
-"from your watchlist" section (an owned game shows under the Steam library instead).
 
 `steam-sync` resolves your owned games to Twitch categories (exact names first, then
 safe normalization and a verified search; Twitch renames no rule should guess go in
@@ -82,5 +75,5 @@ Built: config, clock, sampling tiers, SQLite + Turso store, Helix client, one-sh
 collector, ranking (`scout rank`) with discoverability scoring and noise guards, and
 the Steam owned-library candidate source (`scout steam-sync` + window-tier sampling +
 the owned rank section). CLI: `init-db`, `collect`, `rank`, `steam-sync`.
-Next: manual watchlist and wishlist candidate sources; separate "reliable trend" from
-"min samples" in rank.
+Next: rank by the streamer's expected directory position (store a small per-category
+viewer histogram); separate "reliable trend" from "min samples" in rank.

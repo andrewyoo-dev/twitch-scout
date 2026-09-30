@@ -25,26 +25,18 @@ Rows are deduplicated by game id before writing, because a multi-row upsert cann
 **Next.** Channel count is only a proxy for position (one category had 100 channels, yet a 3-viewer stream would still sit 5th because most streams were at 0-3 viewers).
 Storing a small viewer histogram per category would let rank sort by the streamer's actual expected position.
 
-## The watchlist lives in the database and is managed from the CLI
+## The watchlist was removed
 
-Decided 2026-09-26.
+Decided 2026-09-29 (built 2026-09-26).
 
-**Decision.** `scout watch add/remove/list` stores watched games in a `watchlist` table (schema v3), keyed by Twitch category id.
-The collector samples every entry during the window tier, and `scout rank` shows them in their own section with the same relaxed guards and `--max-channels` ceiling as owned games.
+**Decision.** `scout watch add/remove/list` and its `watchlist` table were removed; migration v4 drops the table that v3 created.
+No wishlist source will be built either.
 
-**Why.** Top-N sampling only catches a game that is currently big, so a small or new game the streamer wants to try is sampled rarely or never.
-Keying by Twitch category (not Steam appid) lets a watched game be unowned or not on Steam at all.
-The CLI and database were chosen over a repo file because adding a game should take effect at the next window slot without a commit, and a personal interest list does not belong in a public repo.
-Names resolve through the same tiers as the Steam library; an unverified name is refused with the closest candidates rather than guessed.
-
-**Duplicate categories.** Twitch search can list stale duplicates under one exact name (two "Anime Shop Simulator ✨").
-When the only tie is between identically named categories, resolution defers to Get Games, which returns the one category Twitch maps that exact name to.
-Ties between different names stay unresolved.
-
-**Case-only twins.** Get Games matches names case-insensitively, so it is not authoritative when two categories differ only by letter case.
-Observed 2026-09-29: "Dressmaker" (the popular new game, 100+ channels) came back from Get Games as the unrelated "DressMaker" (9 channels).
-A Get Games hit whose case differs from the requested name is therefore confirmed with a search: it is accepted if it is the only category with that spelling, otherwise the exact-case category wins, and with no exact-case one the match is refused.
-This costs one search per case-only match (12 in the current Steam library) from the same bounded search budget.
+**Why.** The app's purpose is to find categories where a ~3-viewer channel can pick up viewers.
+Once the window tier samples the top 1,000, every category in that band is already observed automatically, including ones the streamer has never heard of.
+A hand-kept list could only add categories below rank ~1,000, which during stream hours have under ~45 total viewers.
+It also required knowing the game in advance, which is the opposite of discovery.
+A wishlist fails the same test: a wished-for game in the top 1,000 is already ranked, and one outside it has no audience to find.
 
 ## Steam names resolve through conservative tiers, never by truncating a title
 
@@ -66,6 +58,15 @@ The useful part of that idea survives safely in the search tier: a result is acc
 
 **Aliases.** Editorial renames that no rule should guess live in a small, reviewed file in the repo, added only after confirming the Twitch name.
 
+**Duplicate categories.** Twitch search can list stale duplicates under one exact name (two "Anime Shop Simulator ✨").
+When the only tie is between identically named categories, resolution defers to Get Games, which returns the one category Twitch maps that exact name to.
+Ties between different names stay unresolved.
+
+**Case-only twins.** Get Games matches names case-insensitively, so it is not authoritative when two categories differ only by letter case.
+Observed 2026-09-29: "Dressmaker" (the popular new game, 100+ channels) came back from Get Games as the unrelated "DressMaker" (9 channels).
+A Get Games hit whose case differs from the requested name is therefore confirmed with a search: it is accepted if it is the only category with that spelling, otherwise the exact-case category wins, and with no exact-case one the match is refused.
+This costs one search per case-only match (12 in the current Steam library) from the same bounded search budget.
+
 ## Steam owned library is a candidate source, not just a display column
 
 Decided 2026-09-20.
@@ -81,7 +82,7 @@ Sampling is confined to the window tier to keep the extra API calls off the hour
 Pruning removed games happens only on a complete fetch, so a malformed item in a Steam response can never delete a still-owned game.
 
 **Scope.** v1 is owned games only.
-Manual watchlist, then wishlist, are the planned follow-ups; the `source` column already distinguishes them, and the watchlist will reuse the name resolution above.
+A watchlist was built and later removed, and a wishlist was dropped (see "The watchlist was removed"); the top-1,000 window sampling covers that ground.
 
 ## Collection is triggered by an external scheduler, not GitHub `schedule`
 
