@@ -98,6 +98,11 @@ Each step leaves something usable, so a pause at any point loses nothing.
 
 ## Constraints that shape the product
 
+- **The streamer's own game search never breaks.** The project exists first to pick the next game for the streamer who builds it, and that has to work on any day, at any step of the roadmap.
+  `scout rank` and the window-tier collection it reads must keep working through every change.
+  Schema changes are additive, so existing queries keep running on old and new rows.
+  A collection change must keep the streamer's stream hours sampled at least as deeply as today.
+  A change that would replace the CLI ranking ships its replacement first.
 - **Name.** Twitch rejects app names containing "twitch", so the public product needs another name before launch.
 - **Directory order is approximate.** Twitch's default category sort is "Recommended For You", which is personalized and not public.
   Position by viewer count is the best observable proxy and is always labeled as such.
