@@ -1,5 +1,8 @@
 # Twitch Category Scout
 
+> **Historical document.** This is the original brief for the personal CLI, kept because code comments cite its sections.
+> Current product intent is in [PRODUCT.md](PRODUCT.md); current behavior is in the code and in [METHODOLOGY.md](METHODOLOGY.md) and [DATA_MODEL.md](DATA_MODEL.md).
+
 Handoff document. A personal tool for picking which game to stream next, based
 on real data collected at the times that actually matter.
 

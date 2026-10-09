@@ -1,6 +1,7 @@
 # Project agent rules
 
 - Follow the user's global rules and the `coding-standards` skill for code changes or reviews.
+- Project documentation is indexed in [README.md](README.md); keep [docs/DATA_MODEL.md](docs/DATA_MODEL.md) and [docs/METHODOLOGY.md](docs/METHODOLOGY.md) in sync with schema or ranking changes in the same commit.
 - For the Claude implementation and Astra review workflow, read [docs/REVIEW_WORKFLOW.md](docs/REVIEW_WORKFLOW.md).
 - Keep review findings and implementation responses in the local `reviews/` directory, only when it exists (it is gitignored; a fresh clone will not have it). Confirmed fixes belong in commits and tests, durable decisions in [docs/DECISIONS.md](docs/DECISIONS.md).
 - A one-off handoff or AI prompt stays local or in `docs/`; when the work is done, move only the durable decision into `docs/DECISIONS.md` and delete the rest rather than leaving it at the repo root.

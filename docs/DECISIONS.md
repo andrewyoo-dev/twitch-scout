@@ -3,6 +3,34 @@
 A short log of decisions that a future reader needs to understand the project, with the reasoning that is not obvious from the code.
 Newest first.
 
+## Grow into a web app for small English-language streamers, hosted on Vercel
+
+Decided 2026-10-08.
+
+**Decision.** The personal CLI becomes the base of a public web app that recommends games from a streamer's average viewers, stream hours, and genres.
+The first scope is English-language game streamers averaging 1 to 30 viewers.
+Language-specific values are stored as fixed English and all-language columns on `snapshots`, not per-language rows.
+The web app will be hosted on Vercel; collection stays on GitHub Actions.
+Details are in [PRODUCT.md](PRODUCT.md), [DATA_MODEL.md](DATA_MODEL.md) ("Planned: schema v5"), and [METHODOLOGY.md](METHODOLOGY.md) (Part 2).
+
+**Why.** Existing stats sites rank categories globally; none answer where a stream of a given size would appear in a category for its own language and hours.
+A narrow first scope keeps data, methodology, and support small enough to sustain at hobby pace.
+Fixed English columns follow from that scope, not from a general preference for columns over rows: they keep writes at one row per category per batch.
+Vercel was chosen because the user already knows it well; its Hobby plan is non-commercial, so monetization requires the Pro plan.
+
+**Reviewed constraints.** The specification went through several rounds of external review.
+The rules that came out of it, and that implementation must keep:
+
+- Truncated listings, and listings that dropped invalid items, are not valid evidence; English completeness is recorded separately from all-language completeness.
+- Viewer distributions are exact counts up to a stored `max`, so positions are exact apart from genuine ties.
+- Metrics are computed per slot before they are summarized over a period.
+- Missing data is never treated as zero viewers, and every slot and category has exactly one observation status.
+- Recommendations present evidence and caveats, not promises of growth.
+
+**Alternatives rejected.** Storing every stream as its own row (tens of thousands of rows per slot, beyond Turso's free write budget).
+A separate distribution table (doubles rows written).
+Fixed threshold counts such as "streams above 5 viewers" (too coarse: one example widened an exact 21st place into a 1st to 21st range).
+
 ## Sample the top 1000 during stream hours, rank from a 50-viewer floor, batch the writes
 
 Decided 2026-09-29.

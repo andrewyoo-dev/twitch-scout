@@ -18,7 +18,8 @@ Avoid simultaneous edits to the same files during review, and check for target c
 If the code changes during review, identify which conclusions need rechecking.
 
 Read the diff and enough surrounding code, callers, and tests to evaluate the behavior.
-Use [TWITCH_SCOUT_HANDOFF.md](TWITCH_SCOUT_HANDOFF.md) for product intent and the current code and configuration for implementation evidence.
+Use [PRODUCT.md](PRODUCT.md) for product intent, [DATA_MODEL.md](DATA_MODEL.md) and [METHODOLOGY.md](METHODOLOGY.md) for specified behavior, and the current code and configuration for implementation evidence.
+[TWITCH_SCOUT_HANDOFF.md](TWITCH_SCOUT_HANDOFF.md) is the original brief and is historical context only.
 Durable design decisions are in [DECISIONS.md](DECISIONS.md).
 Historical handoffs may contain superseded plans or old test counts; surface material conflicts instead of treating either as current proof.
 

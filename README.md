@@ -1,10 +1,20 @@
 # Twitch Category Scout
 
-A personal CLI that samples the Twitch Helix API at the hours you actually stream,
-so you can pick the next game from real data instead of gut feel. See
-[docs/TWITCH_SCOUT_HANDOFF.md](docs/TWITCH_SCOUT_HANDOFF.md) for the why, the metrics
-that matter, and the two noise traps the ranking must guard against; key design
-decisions are in [docs/DECISIONS.md](docs/DECISIONS.md).
+Samples the Twitch Helix API at the hours a streamer actually streams, so the next game can be picked from real data instead of gut feel.
+Today it is a personal CLI; it is being grown into a web app for small English-language streamers (see [docs/PRODUCT.md](docs/PRODUCT.md)).
+
+## Documentation
+
+| Document | Covers |
+| --- | --- |
+| [docs/PRODUCT.md](docs/PRODUCT.md) | Product intent, first target user, scope, roadmap |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System map, code map, planned web app |
+| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Schema, column meanings, missing-data rules |
+| [docs/METHODOLOGY.md](docs/METHODOLOGY.md) | How samples become rankings and recommendations |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Running and checking collection, secrets, known failures |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Design decisions and their reasons |
+| [docs/REVIEW_WORKFLOW.md](docs/REVIEW_WORKFLOW.md) | Claude implementation and Astra review process |
+| [docs/TWITCH_SCOUT_HANDOFF.md](docs/TWITCH_SCOUT_HANDOFF.md) | Original personal-tool brief (historical) |
 
 ## Stack
 
@@ -14,11 +24,12 @@ decisions are in [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Infra
 
-- **GitHub Actions** runs the collector on a cron ([.github/workflows/collect.yml](.github/workflows/collect.yml)).
-  Tier and DST logic live in Python, so the crons only fire often enough to cover
-  the stream windows; the collector decides what to sample and skips slots it
-  already has.
+- **cron-job.org** triggers the collect workflow every 15 minutes through GitHub's `workflow_dispatch` API.
+- **GitHub Actions** runs the collector ([.github/workflows/collect.yml](.github/workflows/collect.yml)).
+  Tier and DST logic live in Python: the collector decides what to sample and skips slots it already has.
 - **Turso** persists the database (GitHub runners are ephemeral).
+
+See [docs/OPERATIONS.md](docs/OPERATIONS.md) for secrets, routine checks, and known failures.
 
 ## Commands
 
@@ -75,5 +86,5 @@ Built: config, clock, sampling tiers, SQLite + Turso store, Helix client, one-sh
 collector, ranking (`scout rank`) with discoverability scoring and noise guards, and
 the Steam owned-library candidate source (`scout steam-sync` + window-tier sampling +
 the owned rank section). CLI: `init-db`, `collect`, `rank`, `steam-sync`.
-Next: rank by the streamer's expected directory position (store a small per-category
-viewer histogram); separate "reliable trend" from "min samples" in rank.
+Next: schema v5 (English and all-language viewer distributions, collection run records),
+then the web app. See the roadmap in [docs/PRODUCT.md](docs/PRODUCT.md).
